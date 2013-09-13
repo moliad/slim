@@ -1,13 +1,14 @@
 Slim libraries
 ======
 
-Here I store my public reusable code in slim module format.
+This repository contains the core module and application control code to load, manipulate and link slim format libraries.
 
-All the libraries and the module manager are in the /libs folder.  
+Just DO the slim.r file and then you have access to all the modules which are relative to it, and your application, as well as any %<application current-dir>/libs/ subfolder.
 
-Just DO the slim.r file and then you have access to all the modules which are relative to it, and your application, as well as any %libs/ subfolder.
+Also note that as of v1.2.1 of slim, when the slim.r file is directly within a folder called %slim/ it will change its current dir and load as if it when in the folder above, allowing it to load any module packages which are at the same level as the %slim/ folder. This makes it very easy to mix and match packages within other projects.
 
-If you are given one or more libraries from another project (like glass), you can just dump them in a sub-folder or in the root and they will be accessible without any configuration required.
+Note that slim is an integral part of all of my other projects and is (along with other lib packages) often included as a submodule of these.
+
 
 
 Documentation
@@ -16,3 +17,4 @@ Documentation
 current documentation can be found in the wiki here:
 
 https://github.com/moliad/slim-libs/wiki
+
