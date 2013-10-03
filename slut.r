@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | Unit testing"
 	file: %slut.r
-	version: 1.0.0
-	date: 2013-9-6
+	version: 1.0.2
+	date: 2013-10-03
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Unit testing integrated into slim using inlined test definitions.}
 	web: http://www.revault.org/modules/slut.rmrk
@@ -49,6 +49,9 @@ REBOL [
 	
 		v1.0.1 - 2013-09-12
 			-License changed to Apache v2
+			
+		v1.0.2 - 2013-10-03
+			-added support for comment lines in test-groups, via =test-newlines= rule.
 }
 	;-  \ history
 
@@ -97,7 +100,7 @@ REBOL [
 		if your test triggers an error, it will be recovered, and the error object put in the test report.
 		
 		if you with to test failures, simply prefix your test with a negative or recovering piece of code like so:
-			test 'label [ error? = try [ 0 / 0] ]
+			test 'label [ error?  try [ 0 / 0] ]
 			test 'label [ none? all [ select [] 'lbl ] ]
 			
 		These will return true, so they are marked as successfull tests.  The point is to test if the function
@@ -1010,12 +1013,16 @@ slim/register [
 	=test-newline=: [
 		=spaces?=  
 		;(prin ".1.")  
-		"^/" 
+		
+		#"^/" 
 		;(prin ".2.")  
+		
 		=spaces?=  
 	;   (prin ".3.") 
+	
 		#";" 
 	;   (prin ".4.") 
+	
 		=spaces?= 
 	;   (prin ".5.") 
 	]
@@ -1026,14 +1033,23 @@ slim/register [
 			;(prin "-2-")
 			;here:
 			;(probe mold/all copy/part here 10)
+			
 			#"^/"  
 			;(prin "-3-") 
+			
 			=spaces?=  
 			;(prin "-4-") 
-			";" 
+			
+			#";" 
 			;(prin "-5-") 
+			
 			=spaces?= 
 			;(prin "-6-") 
+			
+			opt [
+				#";"
+				to #"^/"
+			]
 		]
 	]
 	
@@ -1302,6 +1318,11 @@ slim/register [
 		[
 			[
 				some [
+					;-------------
+					; we skip comment lines...
+					;-------------
+					
+					
 					[
 						;here:
 						=test-newlines=  
