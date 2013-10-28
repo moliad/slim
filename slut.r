@@ -56,7 +56,9 @@ REBOL [
 	;-  \ history
 
 	;-  / documentation
-	documentation: {        <Note: the documentation might be due for an update, based on latest features.>
+	documentation: {        
+	
+		<Note: the documentation might be due for an update, based on latest features.>
 
 		add unit testing WITHIN any file, in order to localise tests and actual source code.
 		
