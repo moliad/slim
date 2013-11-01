@@ -1839,6 +1839,7 @@ SLiM: context [
 	;      test [ path-list slim.r ] [   not empty? slim/path-list   ]
 	;--------------------------
 	path-list: funcl [
+		"Dynamically builds the list of paths currently accessible by slim"
 	][
 		vin "path-list()"
 		
