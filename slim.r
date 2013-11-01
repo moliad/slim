@@ -115,10 +115,10 @@ REBOL [
 
 	;-  / documentation
 	documentation: {        Documentation can be found here:
-		https://github.com/moliad/slim-libs/wiki}
+		https://github.com/moliad/slim-libs/wiki
+	}
 	;-  \ documentation
 ]
-
 
 
 
@@ -275,6 +275,10 @@ SLiM: context [
 	;-     slim-packages:
 	;
 	; list of sub directories installed in the root of slim libs.
+	;
+	; these are only discovered at slim load time.
+	;
+	; path discovery is *not* re-attempted later.
 	;--------------------------
 	slim-packages: remove-each path read slim-path [
 		#"/" <> last path
@@ -1820,24 +1824,23 @@ SLiM: context [
 	]
 	
 
-
-	;----------------
-	;-    find-path()
-	;----
-	; finds the first occurence of file in all paths.
-	; if the file does not exist, it checks in urls and if it finds it there, 
-	; then it calls the download method.  And returns the path returned by download ()
+	
+	;--------------------------
+	;-     path-list()
+	;--------------------------
+	; purpose:  dynamically builds the list of paths currently accessible by slim
 	;
-	; /next refinement will attempt to find occurence of file when /next is used, file actually is a filepath.
-	;----
-	find-path: func [
-		file
-		/lib
-		/local path item paths disk-paths p
+	; returns:  block of file! path
+	;
+	; notes:    includes all logical paths like app relative and slim.r relative.
+	;
+	; tests:    
+	;
+	;      test [ path-list slim.r ] [   not empty? slim/path-list   ]
+	;--------------------------
+	path-list: funcl [
 	][
-		vin ["SLiM/find-path(" file ")"]
-		
-
+		vin "path-list()"
 		
 		;-----
 		; useful setup which allows slim-relative configuration setup file. (idea and first example provided by Robert M. Muench)
@@ -1866,7 +1869,32 @@ SLiM: context [
 		][  
 			append paths path 
 		]
-		
+
+
+		vout
+		paths
+	]
+	
+
+
+
+	;----------------
+	;-    find-path()
+	;----
+	; finds the first occurence of file in all paths.
+	; if the file does not exist, it checks in urls and if it finds it there, 
+	; then it calls the download method.  And returns the path returned by download ()
+	;
+	; /next refinement will attempt to find occurence of file when /next is used, file actually is a filepath.
+	;----
+	find-path: func [
+		file
+		/lib
+		/local path item paths disk-paths p
+	][
+		vin ["SLiM/find-path(" file ")"]
+
+		paths: path-list
 		
 		foreach item paths [
 			vprint item
