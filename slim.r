@@ -2,13 +2,12 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.1
-	date: 2013-9-6
+	version: 1.2.2
+	date: 2013-11-2
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
-	web: http://www.revault.org/tools/slim.r.rmrk
+	web: http://www.revault.org/tools/slim.rmrk
 	source-encoding: "Windows-1252"
-	note: {Requires a minimal amount of setup (one or two rebol lines of code) in order to function.}
 
 	; -- Licensing details  --
 	copyright: "Copyright © 2013 Maxim Olivier-Adlhoch"
@@ -110,6 +109,11 @@ REBOL [
 			 that as its root path for library searching.
 			-added default-lib-extension to ease r2/r3 code-base integration
 			
+	
+		v1.2.2 - 2013-11-02
+			-Added 'SEARCH-PATHS function
+			-'FIND-PATH now uses 'SEARCH-PATHS
+			-fixed leaking global word use... 'PATH
 	}
 	;-  \ history
 
@@ -119,6 +123,7 @@ REBOL [
 	}
 	;-  \ documentation
 ]
+
 
 
 
@@ -229,6 +234,7 @@ R2?: not R3?
 ;- SLiM OBJECT / START
 ;-----------------------------------------------------------------
 SLiM: context [
+	
 	id:         1       ; this holds the next serial number assigned to a library (not used, deprecate?)
 
 	;--------------------------
@@ -280,6 +286,8 @@ SLiM: context [
 	;
 	; path discovery is *not* re-attempted later.
 	;--------------------------
+	path: none ; v1.2.2 declared, so that the 'PATH word remains local to slim.
+
 	slim-packages: remove-each path read slim-path [
 		#"/" <> last path
 	]
@@ -1802,7 +1810,7 @@ SLiM: context [
 
 	
 	;--------------------------
-	;-    add-path()
+	;-     add-path()
 	;--------------------------
 	; purpose:  add library search paths
 	;
@@ -1826,34 +1834,35 @@ SLiM: context [
 
 	
 	;--------------------------
-	;-     path-list()
+	;-     search-paths()
 	;--------------------------
 	; purpose:  dynamically builds the list of paths currently accessible by slim
 	;
 	; returns:  block of file! path
 	;
 	; notes:    includes all logical paths like app relative and slim.r relative.
+	;			new as of v1.2.2
 	;
 	; tests:    
 	;
-	;      test [ path-list slim.r ] [   not empty? slim/path-list   ]
+	;      test [ search-paths slim.r ] [   not empty? slim/search-paths   ]
 	;--------------------------
-	path-list: funcl [
+	search-paths: funcl [
 		"Dynamically builds the list of paths currently accessible by slim"
 	][
-		vin "path-list()"
+		vin "search-paths()"
 		
 		;-----
 		; useful setup which allows slim-relative configuration setup file. (idea and first example provided by Robert M. Muench)
 		;
-    	; notes: -There is no error checking, we assume the config is valid. 
-    	;        -setup can be protected using normal disk security.
-    	;-----
-	    disk-paths: either (exists? p: rejoin [slim-path %slim-paths default-lib-extension]) [
-	    	reduce load p
-	    ][
-	    	[]
-	    ]
+		; notes: -There is no error checking, we assume the config is valid. 
+		;        -setup can be protected using normal disk security.
+		;-----
+		disk-paths: either (exists? p: rejoin [slim-path %slim-paths default-lib-extension]) [
+			reduce load p
+		][
+			[]
+		]
 
 		paths: copy []
 		
@@ -1880,7 +1889,7 @@ SLiM: context [
 
 
 	;----------------
-	;-    find-path()
+	;-     find-path()
 	;----
 	; finds the first occurence of file in all paths.
 	; if the file does not exist, it checks in urls and if it finds it there, 
@@ -1888,14 +1897,14 @@ SLiM: context [
 	;
 	; /next refinement will attempt to find occurence of file when /next is used, file actually is a filepath.
 	;----
-	find-path: func [
+	find-path: funcl [
 		file
 		/lib
-		/local path item paths disk-paths p
+		;/local path item paths disk-paths p
 	][
 		vin ["SLiM/find-path(" file ")"]
 
-		paths: path-list
+		paths: search-paths  ; v1.2.2 change
 		
 		foreach item paths [
 			vprint item
