@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.2
-	date: 2013-11-2
+	version: 1.2.3
+	date: 2013-11-7
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -114,7 +114,14 @@ REBOL [
 			-Added 'SEARCH-PATHS function
 			-'FIND-PATH now uses 'SEARCH-PATHS
 			-fixed leaking global word use... 'PATH
-	}
+	
+		v1.2.3 - 2013-11-07
+			-'VDUMP is now cyclic reference safe and identifies which objects and blocks are re-used 
+			-changed output format of 'VDUMP: * blocks show length, 
+											  * objects show word count
+											  * function bodies are not displayed, 
+											  * block & object reference IDs are shown
+											  * object words are uppercased to make them stand out (helps a lot)}
 	;-  \ history
 
 	;-  / documentation
@@ -123,6 +130,7 @@ REBOL [
 	}
 	;-  \ documentation
 ]
+
 
 
 
@@ -877,17 +885,20 @@ SLiM: context [
 	;----------------
 	;-    vdump()
 	;----
-	vdump: func [
+	;
+	; 
+	;----
+	vdump: funcl [
 		"prints a block of information about any value (recursive)."
 		data [any-type!]
 		/always "always dump, ignore verbose flags."
 		
 		/threshold tr-len
 		/part display-len
-		/local type item
+		/acc accumulator [hash!]
 	][
 		; return right away if we shoudn't print.
-		unless print?  always none [ exit ]
+		unless print? always none [ exit ]
 		
 		; handle unset values directly.
 		if unset? get*/any 'data [vprin "#[unset!]" vprint "" exit]
@@ -900,57 +911,107 @@ SLiM: context [
 		;vindent
 		;vprin rejoin ["#[" mold type? :data  "]:   "]
 		
-		switch/default type?/word :data [
-			object! [
-				vprin/in "["
-				vprint ""
-				foreach item words-of data [
-					vindent
-					vprin rejoin [item ":   "]
-					vdump get*/any in data item
-				]
-				vout
+		;-----
+		; this variable accumulates all blocks and objects, to make sure cyclical references are not followed.
+		;
+		; when a value is already in the accumulator, we do not traverse it... 
+		; instead we write a comment with an ID, so it can be traced.
+		;acchash: any make hash! []
+		accumulator: any [ accumulator clear #[hash![]] ]
+		
+		
+		unless acc [
+			vindent
+		]
+		
+		reference: head accumulator
+		until [
+			any [
+;				all [
+;					object? :data ; objects are found by reference already, so it's fast.
+;					find reference data
+;				]
+				not reference: find/only reference :data
+				same? first reference :data
+				tail? reference: next reference
 			]
 			
-			string! binary! image! [
-				tdata: copy data
-				if string? data [tdata: to-binary data]
-				if image? data [tdata: mold/all data]
-				either (length? data) > tr-len [
-					tdata: copy/part tdata display-len
-					tdata: head insert back tail tdata rejoin [" ... (length?: " length? data ")"] ; indicate that the series was longer than its printout
-					vprin tdata
-				][
-					vprin mold/all data
-				]
-				vprint ""
-			]
-			
-			datatype! [
-				vprin data
-				vprint ""
-			]
-			
-			
-			block! [
-				if (length? data) > 50 [
-					vprin " (showing first 50 items of block) "
-					data: copy/part data 50
+		]
+		
+		
+		either reference [
+			vprin [ "#[" type? :data  ":" index? reference  "]" ]
+			vprint ""
+		][
+		
+			switch/default type?/word :data [
+				object! [
+					append accumulator data
+					vprin/in ["#[object:" length? accumulator   "(" length? words-of data ")"  ]
+					vprint ""
+					foreach item words-of data [
+						vindent
+						vprin rejoin [ uppercase to-string item ": "]
+						vdump/acc (get*/any in data item) accumulator
+					]
+					vout
 				]
 				
-				vprin/in "["
-				vprint ""
-				foreach item data [
-					vindent
-					vdump get*/any 'item
+				string! binary! image! [
+					tdata: copy data
+					if string? data [tdata: to-binary data]
+					if image? data [tdata: mold/all data]
+					either (length? data) > tr-len [
+						tdata: copy/part tdata display-len
+						tdata: head insert back tail tdata rejoin [" ... (length?: " length? data ")"] ; indicate that the series was longer than its printout
+						vprin tdata
+					][
+						vprin mold/all data
+					]
+					vprint ""
 				]
-				vout
+				
+				
+				datatype! [
+					vprin data
+					vprint ""
+				]
+				
+				
+				block! [
+					append/only accumulator data
+					vprin/in ["#[block:" length? accumulator "(" length? data ")" ]
+					;vprin/in [" [ <block:#" length? accumulator  >" ]
+
+					if (length? data) > 50 [
+						vprin " (showing first 50 items of block) "
+						data: copy/part data 50
+					]
+					
+					;vprin/in "["
+					vprint ""
+					foreach item data [
+						vindent
+						vdump/acc (get*/any 'item) accumulator
+					]
+					vout
+				]
+				
+				function! [
+					vprin ["#[function] "]
+					vprint ""
+				]
+				
+			][
+				vprin mold/all :data
+				vprint ""
 			]
-		][
-			vprin mold/all :data
-			vprint ""
 		]
-	
+		unless acc [
+			; when the accumulator was not provided manually, we should clear it, or else the whole
+			; dataset will be stuck in the GC
+			clear acc
+		]
 	
 	]
 	
