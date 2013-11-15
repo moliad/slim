@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.3
-	date: 2013-11-7
+	version: 1.2.4
+	date: 2013-11-15
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -121,7 +121,12 @@ REBOL [
 											  * objects show word count
 											  * function bodies are not displayed, 
 											  * block & object reference IDs are shown
-											  * object words are uppercased to make them stand out (helps a lot)}
+											  * object words are uppercased to make them stand out (helps a lot)
+	
+		v1.2.4 - 2013-11-15
+			- 'VDUMP now has an /ignore refinement allowing it to ignore data.  This is very useful to restrict
+			  output to something very specific.  you can filter by datatype, word name, or explicit value.
+	}
 	;-  \ history
 
 	;-  / documentation
@@ -130,6 +135,7 @@ REBOL [
 	}
 	;-  \ documentation
 ]
+
 
 
 
@@ -892,17 +898,26 @@ SLiM: context [
 		"prints a block of information about any value (recursive)."
 		data [any-type!]
 		/always "always dump, ignore verbose flags."
+		/ignore ignore-data [word! block! datatype!] "list of attributes or datatypes to ignore"
 		
 		/threshold tr-len
 		/part display-len
 		/acc accumulator [hash!]
+		/no-indent
 	][
 		; return right away if we shoudn't print.
 		unless print? always none [ exit ]
 		
 		; handle unset values directly.
 		if unset? get*/any 'data [vprin "#[unset!]" vprint "" exit]
-	
+		
+		ignore-data: switch/default type?/word ignore-data [
+			word! datatype! block! [ compose [(ignore-data)]]
+		][
+			clear []
+		]
+		
+		;?? ignore-data 
 	
 		; uniformitize inputs (allows easy chaining of recursive calls).
 		tr-len: any [tr-len 256]  ; what length triggers reduced series output
@@ -920,9 +935,6 @@ SLiM: context [
 		accumulator: any [ accumulator clear #[hash![]] ]
 		
 		
-		unless acc [
-			vindent
-		]
 		
 		reference: head accumulator
 		until [
@@ -944,73 +956,93 @@ SLiM: context [
 			vprint ""
 		][
 		
-			switch/default type?/word :data [
-				object! [
-					append accumulator data
-					vprin/in ["#[object:" length? accumulator   "(" length? words-of data ")"  ]
-					vprint ""
-					foreach item words-of data [
-						vindent
-						vprin rejoin [ uppercase to-string item ": "]
-						vdump/acc (get*/any in data item) accumulator
-					]
-					vout
+			unless all [
+				acc ; do not filter top-most data
+				any [
+					find ignore-data type?/word data
+					find ignore-data :data
 				]
-				
-				string! binary! image! [
-					tdata: copy data
-					if string? data [tdata: to-binary data]
-					if image? data [tdata: mold/all data]
-					either (length? data) > tr-len [
-						tdata: copy/part tdata display-len
-						tdata: head insert back tail tdata rejoin [" ... (length?: " length? data ")"] ; indicate that the series was longer than its printout
-						vprin tdata
-					][
-						vprin mold/all data
-					]
-					vprint ""
-				]
-				
-				
-				datatype! [
-					vprin data
-					vprint ""
-				]
-				
-				
-				block! [
-					append/only accumulator data
-					vprin/in ["#[block:" length? accumulator "(" length? data ")" ]
-					;vprin/in [" [ <block:#" length? accumulator  >" ]
-
-					if (length? data) > 50 [
-						vprin " (showing first 50 items of block) "
-						data: copy/part data 50
+			][ 
+		unless no-indent [
+			vindent
+		]
+				switch/default type?/word :data [
+					object! [
+						append accumulator data
+						vprin/in ["#[object:" length? accumulator   "(" length? words-of data ")"  ]
+						vprint ""
+						foreach item words-of data [
+							;vprint "------------------"
+							set/any 'data-value get*/any in data item
+							if unset? get*/any 'data-value [
+								data-value: UNSET! ; simple hack to fix any internals with an unset value.
+							]
+							unless any [
+								find ignore-data type?/word data-value
+								find ignore-data item
+							][
+								vindent
+								vprin rejoin [ uppercase to-string item ": "]
+								vdump/acc/ignore/no-indent data-value  accumulator ignore-data
+							]
+						]
+						vout
 					]
 					
-					;vprin/in "["
-					vprint ""
-					foreach item data [
-						vindent
-						vdump/acc (get*/any 'item) accumulator
+					string! binary! image! [
+						tdata: copy data
+						if string? data [tdata: to-binary data]
+						if image? data [tdata: mold/all data]
+						either (length? data) > tr-len [
+							tdata: copy/part tdata display-len
+							tdata: head insert back tail tdata rejoin [" ... (length?: " length? data ")"] ; indicate that the series was longer than its printout
+							vprin tdata
+						][
+							vprin mold/all data
+						]
+						vprint ""
 					]
-					vout
-				]
-				
-				function! [
-					vprin ["#[function] "]
+					
+					
+					datatype! [
+						vprin data
+						vprint ""
+					]
+					
+					
+					block! [
+						append/only accumulator data
+						vprin/in ["#[block:" length? accumulator "(" length? data ")" ]
+						;vprin/in [" [ <block:#" length? accumulator  >" ]
+	
+						if (length? data) > 50 [
+							vprin " (showing first 50 items of block) "
+							data: copy/part data 50
+						]
+						
+						;vprin/in "["
+						vprint ""
+						foreach item data [
+							vdump/acc/ignore (get*/any 'item) accumulator ignore-data
+						]
+						vout
+					]
+					
+					function! [
+						vprin ["#[function] "]
+						vprint ""
+					]
+					
+				][
+					vprin mold/all :data
 					vprint ""
 				]
-				
-			][
-				vprin mold/all :data
-				vprint ""
 			]
 		]
 		unless acc [
 			; when the accumulator was not provided manually, we should clear it, or else the whole
 			; dataset will be stuck in the GC
-			clear acc
+			clear accumulator
 		]
 	
 	]
