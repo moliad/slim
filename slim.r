@@ -959,13 +959,13 @@ SLiM: context [
 			unless all [
 				acc ; do not filter top-most data
 				any [
-					find ignore-data type?/word data
+					find ignore-data type?/word :data
 					find ignore-data :data
 				]
 			][ 
-		unless no-indent [
-			vindent
-		]
+				unless no-indent [
+					vindent
+				]
 				switch/default type?/word :data [
 					object! [
 						append accumulator data
@@ -978,12 +978,12 @@ SLiM: context [
 								data-value: UNSET! ; simple hack to fix any internals with an unset value.
 							]
 							unless any [
-								find ignore-data type?/word data-value
+								find ignore-data type?/word :data-value
 								find ignore-data item
 							][
 								vindent
 								vprin rejoin [ uppercase to-string item ": "]
-								vdump/acc/ignore/no-indent data-value  accumulator ignore-data
+								vdump/acc/ignore/no-indent :data-value  accumulator ignore-data
 							]
 						]
 						vout
@@ -1020,7 +1020,6 @@ SLiM: context [
 							data: copy/part data 50
 						]
 						
-						;vprin/in "["
 						vprint ""
 						foreach item data [
 							vdump/acc/ignore (get*/any 'item) accumulator ignore-data
