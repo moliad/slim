@@ -227,6 +227,38 @@ extract-set-words: func [
 	words
 ]
 
+
+
+
+	
+;--------------------------
+;- platform-name()
+;--------------------------
+; purpose:  returns the name of the platform this rebol was compiled for
+;
+; returns:  word! or none if platform is unknown
+;
+; notes:    
+;
+; tests:    
+;   switch platform-name  [
+;       OSX []
+;
+;       WIN32 []    
+;
+;       LINUX []
+;   ]
+;--------------------------
+platform-name: does [
+	select [
+		1 AMIGA
+		2 OSX
+		3 WIN32
+		4 LINUX ; (32 bits)
+	] system/version/4 
+]
+
+
 	
 ;-                                                                                                         .
 ;-----------------------------------------------------------------------------------------------------------
@@ -379,6 +411,8 @@ SLiM: context [
 	;-------------------------------
 	;- FUNCTIONS
 	;-------------------------------
+	
+
 	
 	;----------------
 	;-    init-output()
@@ -536,7 +570,6 @@ SLiM: context [
 		
 		line: replace/all line "^/" join "^/" tabs
 		
-		
 		either log [
 			write/append vlogfile join line "^/" ; we must add the trailing new-line
 		][
@@ -546,7 +579,6 @@ SLiM: context [
 				print line
 			]
 		]
-		
 	]
 	
 	
@@ -567,6 +599,7 @@ SLiM: context [
 			object! [append line mold first data]
 			block! [append line rejoin data]
 			string! [append line data]
+			char! [append line data]
 			none! []
 		][append line mold reduce data]
 		
