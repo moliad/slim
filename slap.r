@@ -1700,30 +1700,32 @@ slim/register [
 				]
 			]
 			
-			;----
-			; verify the input
-			if (file?: not is-dir? path) <> (not dir? path) [
-				print [ "Dump() ERROR!! : specified source path does not match its type on disk." ]
-				print [ "spec is a        : " pick [ "file" "directory"] file? "  (" mold path ")" ]
-				print [ "Path on disk is a: " pick ["file" "directory" ] not file? ]
-				halt
-			]
-			
-			;v?? path
-			;print is-dir? path
-			;print not dir? path
-			;print exists? path
-			;ask "??"
-				
-			either exists? path [
-				v?? path
-				either dir? path [
-					delete-dir path
-				][
-					delete path
+			if exists? path [
+				;----
+				; verify the input
+				if (file?: not is-dir? path) <> (not dir? path) [
+					print [ "cleanup() ERROR!! : specified source path does not match its type on disk." ]
+					print [ "spec is a        : " pick [ "file" "directory"] file? "  (" mold path ")" ]
+					print [ "Path on disk is a: " pick ["file" "directory" ] not file? ]
+					halt
 				]
-			][
-				vprint ["file doesn't exist: " path]
+				
+				;v?? path
+				;print is-dir? path
+				;print not dir? path
+				;print exists? path
+				;ask "??"
+					
+				either exists? path [
+					v?? path
+					either dir? path [
+						delete-dir path
+					][
+						delete path
+					]
+				][
+					vprint ["file doesn't exist: " path]
+				]
 			]
 		]
 		
