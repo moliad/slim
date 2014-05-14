@@ -2,17 +2,17 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.4
-	date: 2013-11-15
+	version: 1.2.5
+	date: 2014-5-14
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
 	source-encoding: "Windows-1252"
 
 	; -- Licensing details  --
-	copyright: "Copyright © 2013 Maxim Olivier-Adlhoch"
+	copyright: "Copyright © 2014 Maxim Olivier-Adlhoch"
 	license-type: "Apache License v2.0"
-	license: {Copyright © 2013 Maxim Olivier-Adlhoch
+	license: {Copyright © 2014 Maxim Olivier-Adlhoch
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -126,7 +126,10 @@ REBOL [
 		v1.2.4 - 2013-11-15
 			- 'VDUMP now has an /ignore refinement allowing it to ignore data.  This is very useful to restrict
 			  output to something very specific.  you can filter by datatype, word name, or explicit value.
-	}
+	
+		v1.2.5 - 2014-05-14
+			-Added 'ENUM function to build enum lists easily (uses a simple dialect)
+}
 	;-  \ history
 
 	;-  / documentation
@@ -135,6 +138,7 @@ REBOL [
 	}
 	;-  \ documentation
 ]
+
 
 
 
