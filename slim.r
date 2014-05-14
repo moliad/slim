@@ -230,6 +230,65 @@ extract-set-words: func [
 
 
 
+;--------------------------
+;- enum()
+;--------------------------
+; purpose:  
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    
+;
+; tests:    
+;--------------------------
+enum: funcl [
+	[catch]
+	prefix    [word!]  "what is the prefix for this enum"
+	enum-list [block!] "enumeration dialect: [each word is equal to previous word +1  OR  following integer, if any."
+][
+	ctx-spec: copy []
+	value: -1
+	
+	prefix: append to-string prefix "_"
+	
+	;=eq-word=: to-word "="
+	parse enum-list [
+		some [
+			[
+				[
+					[
+						set word [ word! | set-word! ]
+						opt '=
+						set value integer! 
+					]
+					| [
+						set word word!  (
+							value: value + 1
+						)
+					]
+				]
+				(
+					append ctx-spec reduce [ to-set-word word  value ]
+					append ctx-spec reduce [ to-set-word join prefix to-string word  value ]
+				)
+			]
+			
+			| skip (
+				throw make error! compose [ user message "invalid enum spec" ]
+				;throw to-error "invalid enum spec"
+			)
+		]
+	]
+	
+	ctx: context ctx-spec
+	ctx-spec: none
+	value: none
+	ctx
+]
+
+
 	
 ;--------------------------
 ;- platform-name()
