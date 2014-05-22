@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.5
-	date: 2014-5-14
+	version: 1.2.6
+	date: 2014-5-22
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -129,7 +129,13 @@ REBOL [
 	
 		v1.2.5 - 2014-05-14
 			-Added 'ENUM function to build enum lists easily (uses a simple dialect)
-}
+			
+		v1.2.6 - 2014-05-22
+			-Added 'ENUM-FLAGS function (also triggered by using 'ENUM/FLAGS).
+			 Allows easy building of binary flags.  The dialect supports merging of flags
+			 with the use of |, you can set values directly with a Hex oriented issue! 
+			 and you can set bits using integer! values.
+	}
 	;-  \ history
 
 	;-  / documentation
@@ -138,6 +144,7 @@ REBOL [
 	}
 	;-  \ documentation
 ]
+
 
 
 
@@ -237,13 +244,19 @@ extract-set-words: func [
 ;--------------------------
 ;- enum()
 ;--------------------------
-; purpose:  
+; purpose:  make an enumerated value context for use with external libraries
 ;
-; inputs:   
+; inputs:   a prefix to use on each word (added as a alternate spelling of the value)
+;           an enum dialect where you can set values directly, or just add words, which are then 
+;           auto-incremented by adding 1 to the previous "current" value.
 ;
-; returns:  
+;           use the /flags refinement to build binary flag sets (using the enum-flags function below)
 ;
-; notes:    
+; returns:  a context with numeric values in given words.
+;
+; notes:    - you can use option '=  word to make your enums similar to C code.
+;           - you can use set-words or normal words.
+;           - we use underscore rather than dash to separate prefix, because we follow the C token semantics
 ;
 ; tests:    
 ;--------------------------
@@ -251,7 +264,13 @@ enum: funcl [
 	[catch]
 	prefix    [word!]  "what is the prefix for this enum"
 	enum-list [block!] "enumeration dialect: [each word is equal to previous word +1  OR  following integer, if any."
+	/flags "Use alternate flag mode flag-enum() function."
 ][
+
+	if flags [
+		return flag-enum prefix enum-list
+	]
+
 	ctx-spec: copy []
 	value: -1
 	
@@ -291,6 +310,127 @@ enum: funcl [
 	value: none
 	ctx
 ]
+
+
+;--------------------------
+;-     flag-enum()
+;--------------------------
+; purpose:  generates 
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    Using set-words expects you to supply words to assign as list of flags to merge.
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+flag-enum: funcl [
+	[catch]
+	prefix    [word!]  "what is the prefix for this enum"
+	enum-list [block!] "enumeration dialect: [each word is equal to previous word +1  OR  following integer, if any."
+][
+;	vin "flag-enum()"
+	
+	ctx-spec: copy []
+	current-value: 1
+	prefix: append to-string prefix "_"
+	.mrg-block.:  .word.:  .hex-str.:  none
+	current-bit: 0
+	
+	parse enum-list [
+		some [
+			[
+				[
+					[
+						;----
+						; label
+						[
+							  [ set .word.  set-word! ]
+							| [ set .word.  word!  '=    ]
+						]
+						( .word.: to-set-word .word. )
+;						( vprobe .word.)
+						
+						;----
+						; operation
+						[
+							[
+								;----
+								; manual setup 
+								copy .mrg-block.  [
+									word! 
+									any [
+										[ 'OR  |  '| ]
+										word! 
+									]
+								]
+								( replace/all .mrg-block. '| 'OR )
+								(current-value: .mrg-block.)
+;								( vprint "found manual operation")
+;								( vprobe .mrg-block.)
+							]
+							
+							| [
+								;----
+								; assign bit number
+								set current-value integer! 
+;								( vprint ["found bit number: " current-value]	)
+								(
+									current-bit:   current-value + 1
+									current-value: to-integer power 2 current-value
+								)
+;								( v?? current-value )
+							]
+							
+							|  [
+								;----
+								; assign hex value
+								set .hex-str. issue!
+;								( vprint ["found HEX value: " current-value]	)
+								( current-value: to-integer load rejoin [ "#{"  ( to-string .hex-str. ) "}" ]  )
+;								(  v?? current-value )
+							]						
+						]				
+					]
+					| [
+						set .word. word!  (
+							current-value: to-integer power 2 current-bit
+							current-bit: current-bit + 1
+						)
+						(.word.: to-set-word .word. )
+;						( vprobe .word. )
+;						(  v?? current-value )
+					]
+				]
+				(
+					append ctx-spec reduce [  .word. ] 
+					append ctx-spec current-value 
+					
+					append ctx-spec reduce [ to-set-word join prefix to-string .word. ] 
+					append ctx-spec current-value 
+				)
+			]
+;			(vprint "")
+			| skip (
+				throw make error! compose [ user message "invalid enum spec" ]
+			)
+		]
+	]
+	
+;	v?? ctx-spec
+	
+	ctx: context ctx-spec
+	ctx-spec: none
+	current-value: none
+;	vout
+	
+	ctx
+]
+
+
 
 
 	
