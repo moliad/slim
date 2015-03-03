@@ -63,7 +63,7 @@ rebol [
 slim/register [
 	zipper: slim/open 'zipper none
 	
-	slim/open/expose 'utils-files none [ substitute-file ] 
+	slim/open/expose 'utils-files none [ substitute-file itemize-path ] 
 	
 	
 	;- GLOBALS
@@ -128,11 +128,27 @@ slim/register [
 	;
 	; this will be used by setup in order to build the distro-dir path.
 	;
-	; it is also used by the get-current-release-number() function.
-	;
 	; NOTE:  DO NOT INCLUDE THE TRAILING "/" IN THE SPEC.
 	;--------------------------
 	distro-root-spec: [ distro-name "-r" <RELEASE> ]
+	
+	
+	;--------------------------
+	;-     distro-root-search-spec:
+	;
+	; it is used by the get-current-release-number() function and should be 
+	;
+	; synchronised with the distro-root-spec  attribute.
+	;
+	; by default, they are the same spec, but in some systems, we need additional
+	; variables in the root-dir, and a simple match with the release number is not enough.
+	;
+	; if you want to add a version in the root dir, you'd add version building words 
+	; within the root distro-root-spec but digit matching rules in the distro-root-search-spec instead.
+	;
+	; NOTE:  DO NOT INCLUDE THE TRAILING "/" IN THE SPEC.
+	;--------------------------
+	distro-root-search-spec: distro-root-spec
 	
 	
 	;--------------------------
@@ -144,6 +160,15 @@ slim/register [
 	; after setu-distro, this will be the reducec distro-root-spec
 	;--------------------------
 	distro-label: distro-name
+	
+	
+	;--------------------------
+	;-     distro-version:
+	;
+	; stores the current release version after having been scanned in get-current-release-number()
+	;--------------------------
+	distro-version: 0
+	
 	
 	
 	
@@ -627,6 +652,7 @@ slim/register [
 				1
 			]
 		]
+		self/distro-version: r
 		
 		update-distro-label r
 		distro-dir: dirize join root-dir distro-label
@@ -701,10 +727,10 @@ slim/register [
 		;distro-name
 		/override ospec [block!] "Replace spec with this one."
 		/root oroot [file!] "Overide the path in which to find the distro."
-		/local d-list file i rnum  path spec =rule=
+		/local d-list file i rnum  path spec =rule= current-version
 	][
 	
-		spec: any [ ospec   copy distro-root-spec ]
+		spec: any [ ospec   copy distro-root-search-spec ]
 		root: any [ oroot   root-dir ]
 			
 		either not release: find spec <RELEASE> [
@@ -850,8 +876,6 @@ slim/register [
 	;           like launch, but waits.
 	;
 	; inputs:   
-	;
-	; returns:  
 	;
 	; notes:    
 	;
@@ -1079,8 +1103,6 @@ slim/register [
 	;
 	; inputs:   
 	;
-	; returns:  
-	;
 	; notes:    
 	;
 	; tests:    
@@ -1273,8 +1295,6 @@ slim/register [
 	;
 	; inputs:   
 	;
-	; returns:  
-	;
 	; notes:    
 	;
 	; tests:    
@@ -1355,7 +1375,7 @@ slim/register [
 	;--------------------------
 	; purpose:  
 	;
-	; inputs:  
+	; inputs:  /ignore only makes sense for folder dumps.
 	;
 	; returns:  
 	;
@@ -1369,6 +1389,7 @@ slim/register [
 		/as as-file [file!]  "Alternate destination/name.  must match the src filetype (file or directory)."
 		/to to-dir [file!] "Dump to a different path within the distro. MUST be a directory path.  You can use absolute paths."
 		/fetch "inverses the meaning of the distro and source directories"
+		/ignore ignore-list [file! block!] "one or more files or folders to ignore. (only considers last part of folder or file name."
 		/local src-type file? dest abs-src  lcl-distro-dir lcl-source-dir file rblk
 	][
 		vin "slap/dump()"
@@ -1378,6 +1399,7 @@ slim/register [
 		v?? to
 		v?? to-dir
 		v?? fetch
+		v?? ignore-list
 		vprint "-----------------------"
 		
 		
@@ -1388,8 +1410,9 @@ slim/register [
 			block? src [
 				rblk: copy* []
 				foreach file src [
-					append rblk apply :dump [  file  copy  as  as-file  to  to-dir fetch  ]
+					append rblk apply :dump [  file  copy  as  as-file  to  to-dir fetch ignore ignore-list ]
 				]
+				vout
 				return rblk
 			]
 			
@@ -1426,7 +1449,9 @@ slim/register [
 		][
 			abs-src: join dirize lcl-source-dir src
 		]
-		if (file?: not is-dir? abs-src) <> (not dir? abs-src) [
+		file?: not is-dir? abs-src
+		
+		if (file?) <> (not dir? abs-src) [
 			print [ "Dump() ERROR!! : specified source path does not match its type on disk." ]
 			print [ "spec is a        : " pick [ "file" "directory"] file? "  (" mold abs-src ")" ]
 			print [ "Path on disk is a: " pick ["file" "directory" ] not file? ]
@@ -1504,10 +1529,21 @@ slim/register [
 		v?? src
 		v?? dest
 		
+		;----------------
+		; don't put it in the list if you don't want it
+		;		if all [
+		;			file? ignore
+		;			find ignore-list (file-part src) 
+		;			(vprint "ignoring file" vout return none)
+		;		]
+		;----------------
+		
 		dest: any [
 			all [file? fetch  (dump-file/fetch src dest) ]
 			all [file?  (dump-file src dest) ]
-			all [fetch (dump-dir/fetch src dest)]
+			all [fetch ignore (dump-dir/fetch/ignore src dest ignore-list)]
+			all [fetch  (dump-dir/fetch src dest )]
+			all [ignore (dump-dir/ignore src dest ignore-list )]
 			dump-dir src dest
 		]
 		
@@ -1601,9 +1637,12 @@ slim/register [
 		src [file!]
 		dest [file! none!]
 		/fetch
+		/ignore ignore-list [file! block!]
 		/local lcl-distro-dir lcl-source-dir
 	][
 		vin "slap/dump-dir()"
+		
+		ignore-list: all [ignore compose [(ignore-list)]]
 		
 		either fetch [
 			lcl-distro-dir: source-dir
@@ -1634,7 +1673,7 @@ slim/register [
 		
 		unless exists?  dest [make-dir/deep dest]
 		
-		copy-dir src dest
+		copy-dir/ignore src dest ignore-list
 		vout
 		
 		dest
@@ -1740,9 +1779,13 @@ slim/register [
 	;-     create-dir()
 	;-----------------
 	create-dir: func [
-		path [file!]
+		path [file! block!]
 	][
-		make-dir/deep clean-path join distro-dir dirize path
+		paths: compose [(path)]
+		
+		foreach path paths [
+			make-dir/deep clean-path join distro-dir dirize path
+		]
 	]
 	
 
@@ -1781,6 +1824,7 @@ slim/register [
 		path [file!]
 		/root rootpath [file! none!]
 		/absolute "returns absolute paths"
+		/ignore ignore-list [block! none!] "doesn't list these"
 		/local list item data subpath dirpath rval
 	][
 		rval: copy []
@@ -1807,16 +1851,23 @@ slim/register [
 			append rval path
 			
 			foreach item list [
-				subpath: join path item
-				
-				; list content of this new path item (files are returned directly)
-				either absolute [
-					data: dir-tree/root/absolute subpath rootpath
+						
+				unless all [
+					ignore-list
+					not empty? ignore-list
+					find ignore-list to-string item
 				][
-					data: dir-tree/root subpath rootpath
-				]
-				if (length? data) > 0 [
-					append rval data
+					subpath: join path item
+					
+					; list content of this new path item (files are returned directly)
+					either absolute [
+						data: dir-tree/root/absolute/ignore subpath rootpath ignore-list
+					][
+						data: dir-tree/root/ignore subpath rootpath ignore-list
+					]
+					if (length? data) > 0 [
+						append rval data
+					]
 				]
 			]
 		][
@@ -1842,19 +1893,41 @@ slim/register [
 	copy-dir: func [
 		source  [file!]
 		dest [file!]
+		/ignore ignore-list [block! none!] "VERY SIMPLE list of files to ignore. no differentiation between folders and files."
 		/local list
 	][
 		vin [{copy-dir()}]
+		
+		v?? ignore-list
+		
+		either ignore-list [
+			ignore-list: copy ignore-list
+			forall ignore-list [
+				change ignore-list to-string first ignore-list
+			]
+			ignore-list: head ignore-list
+		][
+			ignore-list: []
+		]
 		either is-dir? dest [
-			foreach file dir-tree source [
-				either is-dir? file [
-					make-dir/deep join dest file
+			foreach file dir-tree/ignore source ignore-list [
+				path-bits: itemize-path file
+				;v?? path-bits
+				;v?? ignore-list
+				;vprobe intersect ignore-list path-bits
+				
+				either empty? intersect ignore-list path-bits [
+					either is-dir? file [
+						make-dir/deep join dest file
+					][
+						write/binary join dest file read/binary vprobe clean-path join source file
+					]
 				][
-					write/binary join dest file read/binary vprobe join source file
+					vprint [ "IGNORING: " join source file]
 				]
 			]
 		][
-			to-error "copy-dir() dest is not a dirpath"
+			to-error "copy-dir() destination is not a directory"
 		]
 		vout
 	]
