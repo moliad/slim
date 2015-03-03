@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.6
-	date: 2014-5-22
+	version: 1.2.7
+	date: 2014-09-12
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -135,6 +135,10 @@ REBOL [
 			 Allows easy building of binary flags.  The dialect supports merging of flags
 			 with the use of |, you can set values directly with a Hex oriented issue! 
 			 and you can set bits using integer! values.
+			 
+		v1.2.6 - 2014-09-12
+			-file logging now has a separate verbosity switch, allowing us to have console off, and logging on.
+			-added vlog-on  vlog-off
 	}
 	;-  \ history
 
@@ -282,9 +286,15 @@ enum: funcl [
 			[
 				[
 					[
-						set word [ word! | set-word! ]
-						opt '=
-						set value integer! 
+						[
+							set word set-word!
+							
+							| [
+								set word word! 
+								'=
+							]
+						]
+						set value [ integer!  |  word!]
 					]
 					| [
 						set word word!  (
@@ -313,7 +323,7 @@ enum: funcl [
 
 
 ;--------------------------
-;-     flag-enum()
+;- flag-enum()
 ;--------------------------
 ; purpose:  generates 
 ;
@@ -595,9 +605,10 @@ SLiM: context [
 
 
 	;-------------------------------
-	;-     vprinting values
+	;-     VPRINTING VALUES
 	;-------------------------------
 	verbose:    false   ; display console messages
+	vlogging?:  false   ; display messages in log file.
 	vtabs: []
 	ltabs: []
 	
@@ -726,7 +737,7 @@ SLiM: context [
 			any [
 				always
 				all [
-					verbose
+					vlogging?
 					not any [
 						all [
 							block? log-vtags
@@ -857,7 +868,6 @@ SLiM: context [
 	
 	
 	
-	
 	;----------------
 	;-    von()
 	;----
@@ -878,12 +888,26 @@ SLiM: context [
 			if block? ntags [clear ntags]
 		]
 	]
+
+	
+	
+	;----------------
+	;-    vlog-off()
+	;----
+	vlog-off: func [] [
+		vlogging?: off
+		if block? log-vtags [clear log-vtags]
+	]
 	
 	
 	
-	
-	
-	
+	;----------------
+	;-    vlog-on()
+	;----
+	vlog-on: func [][
+		vlogging?: on
+		if block? log-ntags [clear log-ntags]
+	]
 	
 	
 	
@@ -1524,11 +1548,13 @@ SLiM: context [
 		set in system/words 'vin :vin
 		set in system/words 'vflush :vflush
 		set in system/words 'vask :vask
-		set in system/words 'vlog :vlog
 		set in system/words 'v?? :v??
 		set in system/words 'vhelp :vhelp
 		set in system/words 'vdump :vdump
 		set in system/words 'vreset :vreset
+		set in system/words 'vlog :vlog
+		set in system/words 'vlog-on :vlog-on
+		set in system/words 'vlog-off :vlog-off
 		set in system/words 'vlog-reset :vlog-reset
 	]
 
@@ -1557,7 +1583,10 @@ SLiM: context [
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		;-----------------
 	][
-		vprint/in ["SLiM/Open()  [" lib-name " " version " ] ["]
+		vprint/in ["SLiM/Open( " uppercase to-string lib-name " " either version [ rejoin ["v" version] ][ " any version"  ]  " ) ["]
+		if new [
+			vprint "Loading a NEW INSTANCE of the library in RAM"
+		]
 		
 		if quiet [quiet?: true]
 		
@@ -1610,9 +1639,9 @@ SLiM: context [
 				lib: self/cached? lib-name
 			][
 				either quiet [
-					vprint ["SLiM/open() " lib-name " library not found (paths: " paths ")"]
+					vprint ["SLiM/open() " lib-name " library not found (paths: " SEARCH-PATHS ")"]
 				][
-					to-error rejoin ["SLiM/open() " lib-name " library not found (paths: " paths ")"]
+					to-error rejoin ["SLiM/open() " lib-name " library not found (paths: " SEARCH-PATHS ")"]
 				]
 			]
 		]
@@ -1753,7 +1782,7 @@ SLiM: context [
 		; so some things, like vprint tabs will be shared with slim, while othe things
 		; like the verbose flag will be local to the module.
 		;--------------------------------------------------
-		slim-localized-funcs: [ von voff vprint vprin vindent vprobe vin vout v?? vhelp vdump vask print? log? ]
+		slim-localized-funcs: [ von voff vprint vprin vindent vprobe vin vout v?? vhelp vdump vask print? log? vlog-on vlog-off]
 		
 		
 		; temporarily set '-*&*_&_*&*- to self it is later set to the new library
@@ -1792,7 +1821,7 @@ SLiM: context [
 		; if this new feature breaks some code, you may use the /unsafe keyword to prevent it.
 		;--------------
 		unless unsafe [
-			words: extract-set-words/only/ignore lib-spec [header self verbose  rsrc-path dir-path ]
+			words: extract-set-words/only/ignore lib-spec [header self verbose vlogging? rsrc-path dir-path ]
 			
 			foreach item lib-spec [
 				;probe mold :item
@@ -1872,6 +1901,7 @@ SLiM: context [
 				; temporarily set these to the slim print tools... 
 				; once the object is built, they will be bound to that object
 				verbose: false
+				vlogging?: false
 				
 				
 ;				vprint: (:get*) (:in) -*&*_&_*&*- 'vprint
@@ -2136,9 +2166,26 @@ SLiM: context [
 	]
 
 
+	;-----------------
+	;-     application-path()
+	;-----------------
+	application-path: funcl [
+	][
+		parent: system/script
+		until [
+			script: parent
+			parent: script/parent
+			any [
+				none? parent
+				none? parent/header
+			]
+		]
+		get in script 'path
+	]  
+	
 	
 	;--------------------------
-	;-     add-path()
+	;-    add-path()
 	;--------------------------
 	; purpose:  add library search paths
 	;
@@ -2162,7 +2209,7 @@ SLiM: context [
 
 	
 	;--------------------------
-	;-     search-paths()
+	;-    search-paths()
 	;--------------------------
 	; purpose:  dynamically builds the list of paths currently accessible by slim
 	;
@@ -2192,22 +2239,33 @@ SLiM: context [
 			[]
 		]
 
-		paths: copy []
+	
 		
 		;----
 		; ordering of library search:
 		;----
-		foreach path reduce [
-			what-dir                ; 1) current directory
-			(join what-dir %libs/)  ; 2) libs subdir within current directory
-			self/paths              ; 3) manual search path setup
-			disk-paths              ; 4) a disk setup file
-			self/slim-packages      ; 5) list of subdirs in slim path
-			self/slim-path          ; 6) where slim is loaded from
-		][  
-			append paths path 
+		;paths: copy []
+		;foreach path reduce [
+		
+		paths: compose [
+			;what-dir                ; 1) current directory
+			;(join what-dir %libs/)  ; 2) libs subdir within current directory
+			(self/paths)              ; 3) manual search path setup
+			(disk-paths)              ; 4) a disk setup file
+			(self/slim-packages)      ; 5) list of subdirs in slim path
+			(self/slim-path)          ; 6) where slim is loaded from
 		]
+		;][  
+		;	append paths path 
+		;]
+		
+		if app-path: application-path [
+			insert paths join app-path %libs/
+			insert paths copy app-path
+		]
+		
 
+		new-line/all paths true
 
 		vout
 		paths
@@ -2217,7 +2275,7 @@ SLiM: context [
 
 
 	;----------------
-	;-     find-path()
+	;-    find-path()
 	;----
 	; finds the first occurence of file in all paths.
 	; if the file does not exist, it checks in urls and if it finds it there, 
