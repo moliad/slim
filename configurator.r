@@ -114,6 +114,8 @@ slim/register [
 	
 	slim/open/expose 'utils-files none [ as-file ]
 	slim/open/expose 'utils-strings none [ fill ]
+	slim/open/expose 'utils-script none  [ get-application-path ]
+	 
 	
 	*copy: get in system/words 'copy
 	*mold: get in system/words 'mold
@@ -121,6 +123,30 @@ slim/register [
 	*probe: get in system/words 'probe
 	
 	whitespace: charset "^/^- "
+
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;- GLOBALS
+	;
+	;-----------------------------------------------------------------------------------------------------------
+
+	;--------------------------
+	;-    default-store-path:
+	;
+	; unless manually set, this path will be used the first time any file-io is attempted on
+	; a !config instance.
+	;
+	; the way this is setup, you should now always get the proper path from the script which
+	; launched rebol, or a relative path, when rebol isn't launched from a script.
+	;
+	; since this is statically set when the module is first loaded, it will be the same across
+	; all calls to configure, even when it is called from a script loaded from another script.
+	;--------------------------
+	default-store-path: join (any [ get-application-path  %"" ] ) %app-config.cfg
+	
+	
+
 
 	;- !CONFIG []
 	; note that tags surrounded by '--' (--tag--) aren't meant to be substituted within the apply command.
@@ -130,9 +156,9 @@ slim/register [
 		;- INTERNALS
 		
 		;-    store-path:
-		; we now specify a default file just to make it uber easy for those who don't care
+		; we the default-store-path when left to none just to make it uber easy for those who don't care
 		; (this is useful when evaluation for example)
-		store-path: %app-setup.cfg
+		store-path: none
 
 		
 		;-    app-label:
@@ -887,6 +913,7 @@ slim/register [
 			either path: any [
 				path
 				store-path
+				default-store-path
 			][
 				
 				app-label: any [app-label ""]
@@ -938,6 +965,7 @@ slim/register [
 			either path: any [
 				path
 				store-path
+				default-store-path
 			][
 				v?? path
 				vprobe clean-path path
@@ -1006,7 +1034,7 @@ slim/register [
 		
 		
 		;--------------------------
-		;-         reset()
+		;-    reset()
 		;--------------------------
 		; purpose:  go back to a copy of the default snapshot of your config
 		;
