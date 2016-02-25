@@ -137,7 +137,7 @@ slim/register [
 	;- LIBS
 	;
 	;-----------------------------------------------------------------------------------------------------------
-	slim/open/expose 'chrono none [ chrono-time time-lapse ]
+	slim/open/expose/platform 'chrono none [ chrono-time time-lapse ]
 	slim/open/expose 'utils-blocks none [ set-tag ]
 	slim/open/expose 'utils-series none [ count contains? ]
 
