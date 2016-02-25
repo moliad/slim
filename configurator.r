@@ -2,8 +2,8 @@ rebol [
 	; -- Core Header attributes --
 	title: "SLIM | Application Configuration system"
 	file: %configurator.r
-	version: 1.0.2
-	date: 2013-9-12
+	version: 1.0.3
+	date: 2015-06-24
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Easy, Safe, Extensible, Auto-documenting, File-based, configuration management.}
 	web: http://www.revault.org/modules/configurator.rmrk
@@ -59,7 +59,10 @@ rebol [
 	
 		v1.0.2 - 2013-09-12
 			-changed license to Apache v2
-}
+
+		v1.0.3 - 2015-06-24
+			-added resolve-path()  now all disk i/o is mapped and fixed to application path.
+	}
 	;-  \ history
 
 	;-  / documentation
@@ -111,12 +114,11 @@ slim/register [
 	;- LIBS
 	;
 	;-----------------------------------------------------------------------------------------------------------
-	
-	slim/open/expose 'utils-files none [ as-file ]
+	 
+	slim/open/expose 'utils-files none [ as-file   directory-of   absolute-path?]
 	slim/open/expose 'utils-strings none [ fill ]
 	slim/open/expose 'utils-script none  [ get-application-path ]
 	 
-	
 	*copy: get in system/words 'copy
 	*mold: get in system/words 'mold
 	*get: get in system/words 'get
@@ -143,7 +145,7 @@ slim/register [
 	; since this is statically set when the module is first loaded, it will be the same across
 	; all calls to configure, even when it is called from a script loaded from another script.
 	;--------------------------
-	default-store-path: join (any [ get-application-path  %"" ] ) %app-config.cfg
+	default-store-path: join ( any [ get-application-path  %./ ] ) %app-config.cfg
 	
 	
 
@@ -160,75 +162,81 @@ slim/register [
 		; (this is useful when evaluation for example)
 		store-path: none
 
-		
 		;-    app-label:
 		; use this in output related strings like when storing to disk
 		app-label: none
-		
-		
 		
 		;-------------------------------
 		;-    -- object-based internals
 		;-------------------------------
 		
+		;-----------------
 		;-    tags:
 		; a context of values 
+		;-----------------
 		tags: none
 		
-		
+		;-----------------
 		;-    save-point:
 		; a save point of tags which can be restored later
 		; NOTE: saves only the tags (on purpose).
+		;-----------------
 		save-point: none
 		
-		
+		;-----------------
 		;-    dynamic:
 		; this is a list of tags which are only use when apply is called, they are in fact driven
 		; by a function, cannot be set, but can be get.  are not part of any other aspect of configurator
 		; like disk, copy, backup, etc.
 		;
 		; clone will duplicate the dynamic tags to the new !config
+		;-----------------
 		dynamic: none
 		
-		
-		
+		;-----------------
 		;-    defaults:
 		; a save point which can only every be set once, includes concealed tags.
 		; use snapshot-defaults() to set defaults.
 		; use reset() to go back to these values
 		;
 		; NOTE: saves only the tags (on purpose).
+		;-----------------
 		defaults: none
 		
+		;-----------------
 		;-    docs:
 		; any tags in this list can be called upon for documentation
 		;
 		; various functions may include these help strings (mold, probe, etc)
+		;-----------------
 		docs: none
 		
+		;-----------------
 		;-    types:
 		; some tags might require to be bound to specific datatypes.
 		; this is useful for storage and reloading... enforcing integrity of disk-loaded configs.
 		;
 		; <TO DO> still work in progress.
+		;-----------------
 		types: none
-		
 		
 		;-------------------------------
 		;-    -- block-based internals
 		;-    protected:
 		; tags which cannot be overidden.
+		;-----------------
 		protected: none
 		
-		
+		;-----------------
 		;-    concealed:
 		; tags which aren't probed, saved or loaded
+		;-----------------
 		concealed: none
 		
-		
-		
+		;-----------------
 		;-    space-filled:
 		; tags which cannot *EVER* contain whitespaces.
+		;-----------------
 		space-filled: none
 		
 		
@@ -336,28 +344,28 @@ slim/register [
 		typed?: func [
 			tag [word!]
 		][
-			vin [{!config/typed?()}]
+			;vin [{!config/typed?()}]
 			found? in types tag
-			vout
+			;vout
 		]
 		
 		
 		;-----------------
 		;-    proper-type?()
 		;-----------------
-		; if tag currently typed?, verify it.  Otherwise return true.
+		; if tag currently typed?, verify it.  Otherwise return none.
 		;-----------------
 		proper-type?: func [
 			tag [word!]
 			/value val
 		][
-			vin [{!config/proper-type?()}]
+			;vin [{!config/proper-type?()}]
 			val: either value [val][get tag]
 			any [
 				all [typed? tag find types type?/word val ]
 				true
 			]
-			vout
+			;vout
 		]
 		
 		
@@ -376,7 +384,7 @@ slim/register [
 				append space-filled tag
 				; its possible to call this before even adding tag to config
 				if set? tag [
-					set tag tags/:tag ; this will enfore fill-space right now
+					set tag get tag ; this will enforce fill-space right now
 				]
 			]
 			vout
@@ -399,7 +407,7 @@ slim/register [
 		
 		
 		;--------------------------
-		;-         increment()
+		;-    increment()
 		;--------------------------
 		; purpose:  
 		;
@@ -453,14 +461,16 @@ slim/register [
 			][
 				either function? :value [
 					; this is a dynamic tag, its evaluated, not stored.
-					dynamic: make dynamic reduce [to-set-word tag none ]
-					dynamic/:tag: :value
+					self/dynamic: make self/dynamic reduce [to-set-word tag none ]
+					self/dynamic/:tag: :value
 				][
 					any [
 						in tags tag
 						;tags: make tags reduce [load rejoin ["[ " tag ": none ]"]
 						tags: make tags reduce [to-set-word tag none ]
 					]
+					
+					; replace any whitespaces by a dash.
 					if space-filled? tag [
 						value: to-string value
 						parse/all value [any [ [here: whitespace ( change here "-")] | skip ] ]
@@ -712,28 +722,33 @@ slim/register [
 			vin [{!config/restore()}]
 			
 			tag-list: list/opt reduce [either visible ['visible][] either safe ['safe][]]
-			v?? tag-list
-			ref-tags: any[
+			;v?? tag-list
+			ref-tags: any [
 				ref-tags
 				either reset [
 					save-point: none
 					self/defaults
 				][
-					save-point
+					save-point ; configure function creates a save-point by default.
 				]
 			]
 			vprint "restoring to:"
-			vprobe ref-tags
+			;vprobe ref-tags
 			if ref-tags [
 				foreach tag any [
-					all [create next first ref-tags]
+					all [
+						create
+						words-of ref-tags
+					]
 					tag-list
 				][
+					;?? tag
 					if any [
 						not keep-unrefered
 						in ref-tags tag
 						create
 					][
+						*get (in ref-tags tag)
 						set/overide tag *get (in ref-tags tag)
 					]
 				]
@@ -785,10 +800,11 @@ slim/register [
 						vprint/always         "|"
 						vprint/always rejoin ["|     " head replace/all any [help tag ""]  "^/" "^/|     "]
 						vprint/always         "|"
-						vprint/always rejoin ["|     "  *copy/part  replace/all replace/all *mold/all tags/:tag "^/" " " "^-" " " 80]
+						;vprint/always rejoin ["|     "  *copy/part  replace/all replace/all *mold/all tags/:tag "^/" " " "^-" " " 80]
+						vprint/always rejoin ["|     "  *copy/part  replace/all replace/all *mold/all get tag "^/" " " "^-" " " 80]
 						vprint/always         "+-----------------" 
 					][
-						vprint/always rejoin [ fill/with to-string tag 22 "_" ": " *copy/part  replace/all replace/all *mold/all tags/:tag "^/" " " "^-" " " 80]
+						vprint/always rejoin [ fill/with to-string tag 22 "_" ": " *copy/part  replace/all replace/all *mold/all get tag "^/" " " "^-" " " 80]
 					]
 				]
 				;vprint ""
@@ -840,14 +856,15 @@ slim/register [
 			][
 				append ignore protected
 			]
-			list: next first tags
+			
+			list: words-of tags
+			
 			if dynamic [
 				append list next first self/dynamic
 			]
+			
 			vout
 			exclude sort list ignore
-			
-			
 		]
 		
 		
@@ -897,6 +914,172 @@ slim/register [
 		]
 		
 		
+		;--------------------------
+		;-    resolve-path()
+		;--------------------------
+		; purpose:  given a file, resolve it to what it should be on disk, wether its local or absolute.
+		;
+		; inputs:   relative or absolute file! value
+		;
+		; returns:  an absolute file!
+		;
+		; notes:    like clean-path but uses application path instead
+		;--------------------------
+		resolve-path: funcl [
+			path [file!]
+		][
+			vin "resolve-path()"
+			v?? path
+			unless absolute-path? path [
+				path: join any [ get-application-path  %./ ] path
+			]
+			
+			; removes and resolves any /./  or /../ from the path"
+			path: clean-path path
+			
+			vout
+			path
+		]
+		
+				
+		;--------------------------
+		;-    on-disk?()
+		;--------------------------
+		; purpose:  detects if the config is currently on disk, using configurator path mechanics.
+		;
+		; inputs:   
+		;
+		; returns:  file! if the file exists, or none!.
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		on-disk?: funcl [
+			/using path [none! file!]
+		][
+			vin "configurator/on-disk?"
+			path: any [
+				path
+				current-path
+			]
+			
+			path: resolve-path path
+			
+			v?? path
+			rval: all [
+				exists? path
+				path
+			]
+			vout
+			
+			rval
+		]
+		
+		
+		;--------------------------
+		;-    current-path()
+		;--------------------------
+		; purpose:  returns dynamic current-path of the configuration, whatever the state of the config.
+		;--------------------------
+		current-path: funcl [
+		][
+			any [
+				store-path
+				default-store-path
+			]
+		]
+		
+		
+		;--------------------------
+		;-    needs-update?()
+		;--------------------------
+		; purpose:  does the on-disk config have the same attributes as the current config?
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    if the on disk 
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		needs-update?: funcl [
+			/using path [file!]
+		][
+			;vin "needs-update?()"
+			not all [
+				path: on-disk?/using path
+				data: attempt [construct load path]
+				list = words-of data
+			]
+			;vout
+		]
+		
+		
+		;-----------------
+		;-    from-disk()
+		;-----------------
+		; note: any missing tags in disk prefs are filled-in with current values.
+		;-----------------
+		from-disk: func [
+			/using path [file!]
+			/create "Create tags comming from disk, dangerous, but useful when config is used as controlled storage."
+			/required "Disk file is required, generate an error when it doesn't exist."
+			/ignore-failed "If disk file wasn't readable, just ignore it without raising errors."
+			/local err data
+		][
+			vin [{!config/from-disk()}]
+			u-path: any [ path store-path ]
+			
+			v?? u-path
+			if using [
+				store-path: u-path
+			]
+			
+			either path: on-disk?/using u-path [
+				v?? path
+				; silently ignore missing file
+				either on-disk? [
+					vprint "path exists"
+					either error? err: try [
+						data: construct load path
+					][
+						;----
+						; loading failed
+						err: disarm err
+						unless ignore-failed [
+							print err: rejoin ["------------------------^/" app-label " Error!^/------------------------^/Configuration file isn't loadable (syntax error): " to-local-file clean-path path "^/" err]
+							to-error "CONFIGURATOR/from-disk()"
+						]
+					][
+						;----
+						; loading succeeded
+						either create [
+							restore/using/keep-unrefered/create data
+						][
+							restore/using/keep-unrefered data
+						]
+					]
+				][
+					vprint "File doesn't exist"
+					if required [
+						to-error rejoin [ "CONFIGURATOR/from-disk(): required configuration file doesn't exist:" to-local-file path]
+					]
+				]
+			][
+				vprobe "CONFIGURATOR/from-disk(): no configuration found on disk."
+			]
+			
+			; remember filename
+			vout
+		]
+
+		
 		
 		
 		;-----------------
@@ -915,7 +1098,7 @@ slim/register [
 				store-path
 				default-store-path
 			][
-				
+				path: resolve-path path
 				app-label: any [app-label ""]
 				
 				data: trim rejoin [
@@ -946,69 +1129,7 @@ slim/register [
 		]
 		
 		
-		
-		
-		;-----------------
-		;-    from-disk()
-		;-----------------
-		; note: any missing tags in disk prefs are filled-in with current values.
-		;-----------------
-		from-disk: func [
-			/using path [file!]
-			/create "Create tags comming from disk, dangerous, but useful when config is used as controlled storage."
-			/required "Disk file is required, generate an error when it doesn't exist."
-			/ignore-failed "If disk file wasn't readable, just ignore it without raising errors."
-			/local err data
-		][
-			vin [{!config/from-disk()}]
-			
-			either path: any [
-				path
-				store-path
-				default-store-path
-			][
-				v?? path
-				vprobe clean-path path
-				; silently ignore missing file
-				either exists? path [
-					vprint "path exists"
-					either error? err: try [
-						data: construct load path
-					][
-						;----
-						; loading failed
-						err: disarm err
-						unless ignore-failed [
-							print err: rejoin ["------------------------^/" app-label " Error!^/------------------------^/Configuration file isn't loadable (syntax error): " to-local-file clean-path path "^/" err]
-							to-error "CONFIGURATOR/from-disk()"
-						]
-					][
-						;----
-						; loading succeeded
-						either create [
-							restore/using/keep-unrefered/create data
-						][
-							restore/using/keep-unrefered data
-						]
-					]
-				][
-					vprint "File doesn't exist"
-					if required [
-						to-error rejoin [ "CONFIGURATOR/from-disk(): required configuration file doesn't exist:" to-local-file path]
-					]
-				]
-			][
-				to-error "CONFIGURATOR/from-disk(): STORE-PATH not set"
-			]
-			
-			; remember filename
-			if using [
-				store-path: path
-			]
-			
-			vout
-		]
-		
+
 		
 		;-----------------
 		;-    snapshot-defaults()
@@ -1079,12 +1200,12 @@ slim/register [
 		
 	]
 	
-	
-	;-------------------------------------------------------------------------------------------------------------------------
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
 	;
 	;- API
 	;
-	;-------------------------------------------------------------------------------------------------------------------------
+	;-----------------------------------------------------------------------------------------------------------
 	
 	;--------------------------
 	;-    configure()
@@ -1104,10 +1225,14 @@ slim/register [
 	;--------------------------
 	configure: funcl [
 		spec [block! none!]
+		/cfg configuration
 		/no-snapshot
 	][
 		vin "configure()"
-		cfg: make !config []
+		cfg: any [
+			configuration 
+			make !config []
+		]
 		
 		cfg/init
 		
