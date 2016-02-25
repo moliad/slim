@@ -64,7 +64,8 @@ rebol [
 			 this makes it easy to build a module which reads images dynamically on your local system, but stores images directly, once encapped.
 
 		v1.0.1 - 9-Sep-2013
-			-license change to Apache v2}
+			-license change to Apache v2
+	}
 	;-  \ history
 
 	;-  / documentation
@@ -155,7 +156,6 @@ slim/register [
 		]
 	]
 		
-
 
 
 
@@ -250,7 +250,7 @@ slim/register [
 	get-libs: func [
 		path [file!]
 		current-libs [block!]
-		/local source code spath lib-name lib-ver slim-open-end x i
+		/local source code spath lib-name lib-ver slim-open-end x i open-refinements
 	][
 		vin "get-libs()"
 		
@@ -306,9 +306,9 @@ slim/register [
 						
 						| [
 							;to " "
-							#"s"
-							"lim/open"
-							any =content= ; skip refinements, if there are any
+							
+							"slim/open"
+							copy open-refinements any =content= ; skip refinements, if there are any
 							
 							=whitespaces=
 							copy lib-name some =content= 
@@ -342,6 +342,14 @@ slim/register [
 			
 			source: slim-open-end
 			
+			;---
+			; modify lib-name if this is a platform-dependent library (which is suffixed the platform name)
+			all [
+				string? open-refinements
+				find open-refinements "platform"
+				lib-name
+				lib-name: to-word  rejoin [ "" lib-name "-" platform-name ]
+			]
 			
 			if all [
 				lib-name
@@ -454,7 +462,7 @@ slim/register [
 			";--------------------------- LINKED WITH SLIM-LINK.r ----------------------------^/"
 			";--------------------------------------------------------------------------------^/^/"
 			;slim-lib
-			script-body read  slim/slim-path/slim.r
+			script-body read  slim/find-path %slim.r
 			"^/^/slim/linked-libs: []"
 			"^/^/^/"
 		]
@@ -596,8 +604,20 @@ slim/register [
 		vprint "###############################################################"
 		vprint "###############################################################"
 		
-		; put the libs code between the header and code of the source
-		insert source libs-txt
+		;------------------------
+		; put the libs code in the source
+		;
+		; verify if the script has a <#slim-libs#> macro token. in which case it will be replaced.
+		;
+		; otherwise we insert it between header and script.
+		;------------------------
+		
+		
+		either find source "<#slim-libs#>" [
+			replace source "<#slim-libs#>" libs-txt
+		][
+			insert source libs-txt
+		]
 		
 		if compressed [
 			to-error "/compressed is current disabled."
@@ -649,11 +669,6 @@ comment {
 
 
 
-
-
-
-
-	none
 
 ;------------------------------------
 ; We are done testing this library.
