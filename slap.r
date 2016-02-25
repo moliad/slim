@@ -63,7 +63,16 @@ rebol [
 slim/register [
 	zipper: slim/open 'zipper none
 	
-	slim/open/expose 'utils-files none [ substitute-file itemize-path ] 
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;-     LIBS
+	;
+	;-----------------------------------------------------------------------------------------------------------
+	slim/open/expose 'utils-files none [ substitute-file   itemize-path   extension-of   filename-of   directory-of   prefix-of   os-copy ] 
+
+	linker: slim/open 'slim-link none
+	
 	
 	
 	;- GLOBALS
@@ -99,8 +108,6 @@ slim/register [
 	; in order to manually change 'DISTRO-DIR based on the root of the distribution.
 	;--------------------------
 	distro-root: none
-	
-	
 	
 	
 	;--------------------------
@@ -170,15 +177,12 @@ slim/register [
 	distro-version: 0
 	
 	
-	
-	
 	;--------------------------
 	;-     release-number-padding:
 	;
 	; how many 0 padding do we need in the release number of distro-label?
 	;--------------------------
 	release-number-padding: 3
-	
 	
 	
 	;--------------------------
@@ -191,12 +195,22 @@ slim/register [
 	;
 	; note that this list is NOT used when FILE path are given to fix. it will always fix explicit files you tell it to.
 	;--------------------------
-	fix-extensions: ["txt" "r" "rmrk" "doc" "c" "h" "cp" "cpp" "cs" "html" "css" "js" "php" "asp" "aspx" "j" "jsp"]
+	fix-extensions: [
+		; text 
+		"txt" 
+		; dev
+		"r" "r3" "reb" "rmrk" "doc" "c" "h" "cp" "cpp" "cs"
+		; web 
+		"cs" "html" "htm"  "css" "js" "php" "asp" "aspx" "j" "jsp"
+	]
 	
 	
-	;--------------------------
-	;-     ENCAP-ATTRIBUTE:
-	;--------------------------
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;- ENCAP-ATTRIBUTES
+	;
+	;-----------------------------------------------------------------------------------------------------------
 	encap-path: none
 	encap-exe: none
 	encap-includes: none
@@ -207,36 +221,62 @@ slim/register [
 	
 	
 	
-	;--------------------------------------------------------------------------------------------------
-	;-
+	
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- PARSE RULES
 	;
-	;--------------------------------------------------------------------------------------------------
+	;-----------------------------------------------------------------------------------------------------------
 
 	;--------------------------
 	;-     =digits=:
-	;--------------------------
 	=digit=: charset "0123456789" 
-
 
 	;--------------------------
 	;-     =whitespace=:
-	;--------------------------
 	=whitespace=: charset "^- "
 	
+	;--------------------------
+	;-     =newline=:
+	=newline=: charset "^/" 
+	
+	;--------------------------
+	;-     =text=:
+	=text=: complement =newline=
 	
 	;--------------------------
 	;-     =separator=:
-	;--------------------------
 	=separator=: charset "^- ^/()[]{}^""
 
+	;--------------------------
+	;-         =macro-start=:
+	;
+	; identifies where a preprocessor command starts in slap.  
+	; change this in the call to 'PREPROCESS if it collides with your application data
+	;
+	; eventually, 
+	;--------------------------
+	=macro-start=: "<#"
+	
+	;--------------------------
+	;-         =macro-end=:
+	;
+	; identifies where a preprocessor command starts in slap.  
+	; change this in the call to 'PREPROCESS if it collides with your application data
+	;
+	; eventually, 
+	;--------------------------
+	=macro-end=: "#>"
+	
 
 
-	;--------------------------------------------------------------------------------------------------
-	;-  
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- ENCAP FUNCTIONS
 	;
-	;--------------------------------------------------------------------------------------------------
+	;-----------------------------------------------------------------------------------------------------------
 	
 
 	;--------------------------
@@ -255,6 +295,7 @@ slim/register [
 	setup-encap: func [
 		sdk-dir [ file! ]
 		/cmd  "use encmd.exe"
+		/pro  "use enpro.exe"
 		/view "use enface.exe"
 		/base "use enbase.exe"
 		/basis   [word!]
@@ -265,11 +306,12 @@ slim/register [
 		vin "slap/setup-encap()"
 		encap-path: clean-path sdk-dir
 		
-		encapper: any [
-			all [ cmd     %encmd.exe  ]
-			all [ base    %enbase.exe ]
-			all [ view    %enface.exe ]
-			%encmdview.exe 
+		encapper: case [
+			pro  [   %enpro.exe  ]
+			cmd  [   %encmd.exe  ]
+			base [   %enbase.exe ]
+			view [   %enface.exe ]
+			'default [ %encmdview.exe ]
 		]
 		
 		if basis [
@@ -285,7 +327,7 @@ slim/register [
 		
 		encap-exe: rejoin [ encap-path %tools/ encapper ]
 		encap-includes: join encap-path %source/
-		prebol-script: rejoin [ encap-path %tools/ %prebol.r ]
+		prebol-script:    rejoin [ encap-path %tools/ %prebol.r ]
 		
 		pre-rebol-script: rejoin [ encap-path %tools/ %prerebol.r ]
 		
@@ -313,36 +355,268 @@ slim/register [
 	]
 	
 	
-	
 
-
-	
 	;--------------------------
-	;-     encap()
+	;-     preprocess()
 	;--------------------------
-	; purpose:  encap a file within the distro
+	; purpose:  a string-based preprocessor which doesn't obey the normal rules of REBOL syntax allowing you to
+	;           be much more precise in your builds.
 	;
 	; inputs:   
-	;
-	; returns:  
 	;
 	; notes:    
 	;
 	; tests:    
 	;--------------------------
-	encap: funcl [
-		source-file [ file! ]
-		/as basis [word!]
-		/to dest-path"set output path."
+	preprocess: funcl [
+		origin [string! binary! file!]
+		/keep-header "when a rebol source is given, skip the header.  Otherwise, we don't assume its a script.   note this option is not recursive."
+		/markers start [string!]  end [string!] "replace start and end markers for macros."
+		/options opt-blk [block! none!] "a block of options which can be easily cascaded and mutilated in recursive processing." 
+		/as filename [file!] "may include sub-paths, MUST include a filename."
+	][
+		vin "slap/preprocess()"
+		;destination:  none
+		
+		=macro-start=: any [start self/=macro-start=]
+		=macro-end=:   any [end   self/=macro-end=]
+		
+		
+		if file? origin [
+			pre-wd: what-dir
+			origin: distro-path origin
+			
+			file: prefix-of origin 
+			file: rejoin [file %-preprocessed.r]
+			
+			v?? origin
+			v?? file
+			
+			destination: rejoin [ 
+				directory-of origin 
+				any [
+					filename
+					file 
+				]
+			]
+			v?? destination
+			
+			unless filename-of destination [
+				to-error "slap/preprocess() requires a filename within destination path."
+			]
+			
+			change-dir directory-of origin
+			
+			origin: read origin
+		]
+		
+		vprobe length? origin
+		
+		;--
+		; we skip rebol headers by default
+		if all [
+			;---
+			; this IS a rebol script
+			keep-header
+			not origin: extract-script origin
+		][
+			to-error "Unable to skip header, not a rebol script."
+		]
+		
+		i: 0
+		
+		parse/all origin [
+			any [
+				
+				[
+					.macro-start:  =macro-start=
+					any =whitespace= 
+					
+					[
+						[
+							[
+								;------
+								;-        - #INCLUDE
+								;--
+								; the basic include just does file substitution.
+								; it doesn't detect circular refs, so be careful.
+								;
+								; #INCLUDE IS recursive
+								[
+									copy .cmd "include" 
+									(vprint "slap/preprocess() Found #INCLUDE" )
+									copy .refinements opt [
+										any [
+;											"/string"  ()   ; add outer brackets to insert as string.
+;											"/only"    ()   ; don't recursively preprocess data, really just insert file here.
+;											"/block"   ()   ; add output block brackets to essentially turn into a block of code (must be loadable data)
+											"/binary"  ()   ; convert data into a binary, if possible, or generate an error.
+;											"/mold"    ()   ; load and mold/all the code.  preserving some types.
+										]
+									]
+								]
+								;-----------------------
+								; PUT ANY OTHER COMMAND DEFINITION HERE
+								;-----------------------
+							]
+							
+							;-----
+							; identify the macro end, but don't make it part of the macro-code
+							;
+							; it is opt since a command may need no args.
+							copy .macro-data opt [
+								some =whitespace= 
+								to =macro-end=
+							]
+						]
+					]
+					=macro-end=
+					.macro-end:  
+					there: ; just a backup to skip the macro if its spec is bad and it can't get to replace it.
+					(
+						;---
+						; load the data (if any)
+						v?? .cmd
+						v?? .macro-data
+						either string? .macro-data [
+							.macro-data: load/all  .macro-data
+						][
+							.macro-data: copy []
+						]
+						v?? .macro-data
+						
+						v?? .refinements
+						either string? .refinements [
+							.refinements: load/all .refinements
+						][
+							.refinements: copy []
+						]
+						v?? .refinements
+						
+						;---
+						; perform macro
+						switch/default .cmd [
+							"INCLUDE" [
+								path: pick .macro-data 1
+								
+								v?? path
+								
+								either file? path [
+	;---
+									vprint ["INCLUDING :" path]
+								
+									; optimise path
+									;
+									path: clean-path path
+		
+									unless exists? path [
+										vprint [ to-local-file path " Doesn't exist" ]
+										to-error rejoin ["slap/preprocess/#include : " to-local-file path " Doesn't exist" ]
+									]
+									data: read path
+									
+									;---
+									; store path
+									cwd: what-dir
+									
+									;---
+									; set working path to file being pre=processed
+									change-dir directory-of path
+									
+									;---
+									; using a recursive call to preprocess within parse, we are able to effectively cause 
+									; stack use, since the values are all contextualised to the function context by funcl.
+									data: preprocess/options data opt-blk
+									
+									
+									vprobe length? data
+									
+									;---
+									; restore our working path
+									change-dir cwd
+									
+									if find .refinements /binary [
+										data: mold as-binary data
+									]
+									
+									;---
+									; do the file data replacement.
+									;
+									; change/part returns the offset at the end of the change, so we can use it
+									; directly within the parse as :there, later on.
+									;---
+									there: change/part .macro-start data .macro-end
+								][
+									to-error rejoin ["slap/preprocess() <#include ...#> expects a file!, (" mold path ") is invalid" ]
+								]
+							]
+						][
+							to-error rejoin ["slap/preprocess() unknown command : " .cmd ]
+						]
+					)
+					
+					;----
+					; where do we set the cursor when the macro is done?
+					:there 
+				]
+				| skip (i: i + 1   if i > 10'000 [prin "." i: 0])
+			]
+		]
+		
+		v?? destination
+		;----
+		; simple keyword substitution
+		;-        - #SDK-PATH
+		replace/all origin rejoin [=macro-start=  "SDK-PATH"  =macro-end= ] mold encap-path
+		
+		
+		;----
+		; write out the file if input was a filename.
+		if destination [
+			;---
+			; restore the working dir to what we had when we entered the preprocess function
+			change-dir pre-wd
+			write destination origin
+		]
+		
+		
+		; destination: op-start: op-end: op: path: data: cwd: there: none
+		data: .macro-data: .macro-end: .macro-start: none
+		
+		vprobe length? origin
+		;ask ".."
+		
+		vout
+		first reduce [origin  origin: none]
+	]
+	
+		
+	;--------------------------
+	;-     sdk-prebol()
+	;--------------------------
+	; purpose:  let the sdk pre-process a file
+	;
+	; inputs:   
+	;
+	; returns:  the generated file name, so we can easily continue the toolchain
+	;
+	; notes:    this relies on the modified sdk toolchain by Maxim Olivier-Adlhoch.
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	sdk-prebol: funcl [
+		source-file [file!]
+		/as out-name [word! file!]
+		/to dest-dir "set output folder. can be relative (to distro) or absolute"
 		/as-is "use the path as is, do not make it a distro-relative path"
 		/within encap-wd "set the current-working-directory in order to align local paths."
 		/pause "pause the encap process when it is done... allows to look at stats"
-
-		;/local test out cmd
 	][
-		vin "slap/encap()"
-		
-		here: what-dir ; memorise where we are 
+		vin "sdk-prebol()"
+
+		here: what-dir ; memorise where we are , is restored before quitting
 		
 		wd: either encap-wd [
 			either absolute-path? encap-wd [
@@ -353,54 +627,131 @@ slim/register [
 		][
 			distro-dir
 		]
-		
 		v?? wd
 		change-dir wd
 		source-file: distro-path source-file
 
-		preboled-path:    encapped-script-file
-		output-exe-path:  encapped-exe-file
+;		basis: prefix-of source-file
+;		any [
+;			prefix-of source-file
+;			distro-name
+;		]
 		
-		
-		
-		basis: any [
-			basis
+		output-file:   any [
 			all [ 
-				prefix: file-part source-file
-				any [
-					all [
-						p: find prefix "."
-						copy/part prefix p
-					]
-				]
+				file? out-name
+				out-name
 			]
-			distro-name
+			all [
+				word? out-name
+				to-file rejoin [out-name ".r"]
+			]
+			to-file rejoin [ prefix-of source-file  "-preboled.r" ]
+		]
+
+		if dest-dir [
+			output-file:    join dest-dir output-file
 		]
 		
-		preboled-path:       to-file rejoin [ basis  "-preboled.r" ]
-		output-exe-path:     to-file rejoin [ basis  ".exe" ]
-
-
-		if dest-path [
-			preboled-path:    join dest-path preboled-path
-			output-exe-path:  join dest-path output-exe-path
-		]
+		output-file:    distro-path output-file
 		
-		
-		preboled-path:    distro-path preboled-path
-		output-exe-path:  distro-path output-exe-path
-		v?? basis
-
-		;v?? encap-path
-		;v?? encap-exe
-		;v?? encap-includes
-		;v?? encapped-script-file
-		
-		v?? preboled-path
-		v?? output-exe-path
-		
-		
+		v?? source-file
+		v?? output-file
 		;ask "go!? ..."
+		
+		;source-code: read source-file
+		
+		vprint [ "Preprocessing :" mold/all source-file ]
+		vprint [ "file size :    " get in (info? source-file) 'size " bytes" ]
+		
+		
+		;-----------------
+		; we now process-source() in a separate task because on large inputs, it busts the ram size!!
+		;-----------------
+		;   process-source/keep source-file
+		;   write output-file mold/only result
+		;   vprint ["result size: " length? mold/only result ]
+		;   vprint ["saving as :  " output-file]
+		;---
+		execute rejoin [
+			to-local-file pre-rebol-script
+			" "
+			to-local-file source-file
+			" "
+			to-local-file output-file
+		]
+		
+
+		; reset path to the path on entry.
+		change-dir here
+
+		vout
+		
+		output-file
+	]
+
+	
+	;--------------------------
+	;-     encap()
+	;--------------------------
+	; purpose:  encap a file within the distro
+	;
+	; inputs:   
+	;
+	; returns:  the generated file name, so we can easily continue the toolchain
+	;
+	; notes:    we now prevent the REBOL preprocessor from touching our script, because it destroys them.
+	;           unfortunately, serialized forms of values do not traverse the preprocessor in serialized form.
+	;
+	;           this means any serialized data in a block is automatically corrupted.
+	;
+	;           there is no workaround because the prebol script LOADs scripts rather than READs them.
+	;           it is a block parser, not a string parser.   
+	;
+	;           use slap's own PREPROCESS function to replace the rebol prebol.
+	;
+	;           note that when encapping, you should usually create a file and put the standard rebol
+	;           includes in it, prerebol THAT file, and then use PREPROCESS to include the result file 
+	;           into your script.
+	;
+	;           encap always uses FRAME-SCRIPT before encapping.
+	;
+	; tests:    
+	;--------------------------
+	encap: funcl [
+		source-file [file!]
+		/as basis [word! file!]
+		/to dest-dir [file!]"set output path."
+		;/as-is "use the path as is, do not make it a distro-relative path"
+		/within encap-wd "set the current-working-directory in order to align local paths."
+		/pause "pause the encap process when it is done... allows to look at stats"
+
+		;/local test out cmd
+	][
+		vin "slap/encap()"
+		
+		source-file: distro-path source-file
+				
+		output-file: any [
+			all [
+				file? basis
+				filename-of basis
+			]
+			all [
+				basis: prefix-of source-file
+				join basis ".exe"
+			]
+			join to-file distro-name ".exe"
+		]
+		
+		output-dir: dirize any [
+			dest-dir
+			directory-of source-file
+			%./
+		]
+		
+		output-exe-path: distro-path join output-dir output-file
+		v?? output-exe-path
 		
 		;---
 		; we manually pre-process the code.
@@ -414,65 +765,27 @@ slim/register [
 		vprint ["Preprocessing :" mold/all source-file ]
 		vprint ["file size :    " length? source-code " bytes" ]
 		
-		;vprint type? source-file
-		;help source-file
-		
-		
-		;-----------------
-		; we now process-source() in a separate task because on large inputs, it buts the ram size!!
-		;-----------------
-		;   process-source/keep source-file
-		;   write preboled-path mold/only result
-		;   vprint ["result size: " length? mold/only result ]
-		;   vprint ["saving as :  " preboled-path]
-		;---
-		execute rejoin [
-			to-local-file pre-rebol-script
-			" "
-			to-local-file source-file
-			" "
-			to-local-file preboled-path
-		]
+		source-code: frame-script source-code
+		vprint ["file size after framing :    " length? source-code " bytes" ]
 		
 		
 		
-		pause?: either pause [" -p " ][""] 
+		pause?: either pause [" -p " ][""]
 
-		;cmd: rejoin [ "" to-local-file encap-exe " -p -t " to-local-file distro-path encapped-script-file " -o " to-local-file distro-path encapped-exe-file  " " to-local-file distro-path source-file ] 
-		cmd: rejoin [ "" to-local-file encap-exe pause? " -o " to-local-file output-exe-path  " " to-local-file preboled-path ]
+		cmd: rejoin [ "" to-local-file encap-exe pause? " -o " to-local-file output-exe-path  " " to-local-file source-file ]
 		v?? cmd
-		out: ""
+		out: make string! 100'000
 		test: call/shell/console/error/info cmd out
 		v?? out
-		
-;       cmd: rejoin [ "" to-local-file encap-exe " -p -t " to-local-file distro-path to-file rejoin ["direct-" encapped-script-file] " -o " to-local-file distro-path to-file rejoin ["direct-" encapped-exe-file ] " " to-local-file distro-path source-file ] 
-;       ?? cmd
-;       out: ""
-;       test: call/shell/console/error/info cmd out
-;       ?? out
-;
-;       probe test
-
-
-		; reset path to the path on entry.
-		change-dir here
-
-
-		;------
-		; GC cleanup
-		result: cmd: out: pause?: source-code: source-file: preboled-path: output-exe-path: none
 
 		vout
-
-
-
 	]
 	
 	
 	;--------------------------
 	;-     frame-script()
 	;--------------------------
-	; purpose:  given a rebol script skip the header and surround the whole script in a do block.
+	; purpose:  given a rebol script string, skip the header and surround the whole script in a do block.
 	;
 	; inputs:   
 	;
@@ -484,38 +797,40 @@ slim/register [
 	;--------------------------
 	frame-script: funcl [
 		script [ string! ]
+		/show-stats "in some cases we need to see if we are busting ram... show stats at each step."
 	][
 		vin "slap/frame-script()"
-		vprint ["MEM 1: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 1: " (stats / 1'000'000) "MB"]]
 		
 		script: extract-script script
 		vprint length? script
-		vprint ["MEM 2: " (stats / 1'000'000) "MB"]
+		
+		if show-stats [vprint ["MEM 2: " (stats / 1'000'000) "MB"]]
 		header: copy/part head script script
 		
-		vprint ["MEM 3: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 3: " (stats / 1'000'000) "MB"]]
 		script: compress script
-		vprint length? script
+		if show-stats [vprint length? script]
 		
-		vprint ["MEM 3.5: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 3.5: " (stats / 1'000'000) "MB"]]
 		recycle/off
 		recycle/on
 		
-		vprint ["MEM 4: " (stats / 1'000'000) "MB"]
-		vprint length? script
-		vprint length? header 
+		if show-stats [
+			vprint ["MEM 4: " (stats / 1'000'000) "MB"]
+			vprint length? script
+			vprint length? header 
+		]
 		
-		vprint ["MEM 5: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 5: " (stats / 1'000'000) "MB"]]
 		append header "^/do as-string decompress "
-		vprint length? header
 
 
-		vprint ["MEM 6: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 6: " (stats / 1'000'000) "MB"]]
 		append header mold script 
-		vprint length? header
 		
 
-		vprint ["MEM 7: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 7: " (stats / 1'000'000) "MB"]]
 		clear script
 		script: none
 		
@@ -523,17 +838,19 @@ slim/register [
 		recycle/on
 		
 		
-		vprint ["MEM 8: " (stats / 1'000'000) "MB"]
+		if show-stats [vprint ["MEM 8: " (stats / 1'000'000) "MB"]]
 		vout
 		first reduce [header header: none ]
 	]
-		
-		
-	;--------------------------------------------------------------------------------------------------
-	;-  
+	
+
+
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- DISTRO FUNCTIONS
 	;
-	;--------------------------------------------------------------------------------------------------
+	;-----------------------------------------------------------------------------------------------------------
 	
 	
 	;--------------------------
@@ -784,11 +1101,12 @@ slim/register [
 		
 	
 		
-	;--------------------------------------------------------------------------------------------------
-	;-  
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- UTILITY FUNCTIONS
 	;
-	;--------------------------------------------------------------------------------------------------
+	;-----------------------------------------------------------------------------------------------------------
 	
 	
 	
@@ -898,13 +1216,12 @@ slim/register [
 
 
 
-	;--------------------------------------------------------------------------------------------------
-	;-  
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- FILE PROCESSING FUNCTIONS
 	;
-	;--------------------------------------------------------------------------------------------------
-
-
+	;-----------------------------------------------------------------------------------------------------------
 
 
 	;--------------------------
@@ -917,15 +1234,17 @@ slim/register [
 	;
 	; returns:  number of files successfully fixed
 	;
-	; notes:    -given folders are fixed recursively, which may take some time.
-	;           -a file extension filter is applied on recursive fixes... preset this within fix-extensions: or use /only
-	;           -providing anything else than a string for fixes raises an error.
+	; notes:    - given folders are fixed recursively, which may take some time.
+	;           - a file extension filter is applied on recursive fixes... preset this within fix-extensions: or use /only
+	;           - providing anything else than a string for fixes raises an error.
+	;           - /Line mode skips any whitespaces directly between your search and replace text.
 	; tests:    
 	;--------------------------
 	fix: fix*: func [
 		files [file! block!] ; distro-relative
 		fixes [string! block!]
 		/source "get the files in the source directory instead of the distro."
+		/lines "use line mode which searches string at start of line and replaces text AFTER it."
 		/local fix file data changed? dir path abs-path file? fix-to fixed-count file-list
 	][
 		vin [{fix()}]
@@ -952,6 +1271,8 @@ slim/register [
 				abs-path: join dirize dir path
 			]
 			
+			abs-path: clean-path abs-path
+			
 			unless exists? abs-path [
 				print [ "fix() ERROR!! : file doesn't exist: " abs-path ]
 				halt
@@ -964,32 +1285,77 @@ slim/register [
 				halt
 			]
 		
-				
 			either file? [
 				;----
 				; single file fix
 				data: read abs-path
-				
-				;vprobe data
+				;v?? abs-path
 				
 				changed?: false
-				foreach [ fix fix-to ] fixes [
-					;vprobe fix
-					;vprobe fix-to
-					unless changed? [
-						if find data fix [
-							changed?: true
+				foreach [ srchstr  fix-to ] fixes [
+					;v??  srchstr
+					either lines [
+						;----------------------------------
+						;-         -Line mode
+						;
+						; look here for dev reference: C:\dev\tests\slap-fix-line-parse-dev.r
+						parse/all data [
+							any [
+									[
+										;---
+										; skip search string AND any traling space, so indents are kept.
+										any =whitespace=
+										srchstr
+										any =whitespace=
+										
+										;---
+										; select the rest of line, this will be replaced (note: we do not include the trailing new line...)
+										copy .foundstr [
+											here:
+												[
+													to "^/"
+													| to end
+												]
+											there:
+										]
+										(
+											change/part here fix-to any [ all [ .foundstr length? .foundstr ] 0 ]
+											there: skip here length? fix-to
+											changed?: true
+										)
+										:there ; adjust cursor to end of fixed string
+										
+										;----
+										; we now skip the trailing newline
+										[
+											some =newline=
+											| end
+										]
+									]
+									| [	some =text= =newline= ]
+									| [	=newline= ]
+								]
+							]
+					][
+						;----------------------------------
+						;-         -search replace mode
+						unless changed? [
+							if find data srchstr [
+								changed?: true
+							]
 						]
-					]               
-					replace/all data fix fix-to
+						replace/all data srchstr fix-to
+					]
+					;]               
 				]
+				
 				;vprobe data
 				either changed? [
 					write abs-path data
 					fixed-count: fixed-count + 1
 					vprint ["Fixed:  " abs-path]
 				][
-					vprint ["ignred: " path]
+					vprint ["Nothing to fix: " abs-path]
 				]
 			][
 				;----
@@ -1000,7 +1366,7 @@ slim/register [
 
 				foreach path file-list [
 					if is-dir? path [
-						vprint ["fixing path: " path]
+						;vprint ["fixing path: " path]
 						fix* path fixes
 					]
 				]
@@ -1020,6 +1386,9 @@ slim/register [
 		
 		fixed-count
 	]
+
+
+	
 
 
 
@@ -1042,7 +1411,7 @@ slim/register [
 	][
 		vin "slap/extract-script()"
 		;---
-		; skip the first rebol word we find.
+		; skip the first 'REBOL word we find (just like the interpreter).
 		until [
 			blk: load/next data
 			
@@ -1095,153 +1464,6 @@ slim/register [
 	
 
 
-	;--------------------------
-	;-     preprocess()
-	;--------------------------
-	; purpose:  a string-based preprocessor which doesn't obey the normal rules of REBOL syntax allowing you to
-	;           be much more precise in your builds.
-	;
-	; inputs:   
-	;
-	; notes:    
-	;
-	; tests:    
-	;--------------------------
-	preprocess: funcl [
-		origin [string! binary! file!]
-		/keep-header "when a rebol source is given, skip the header.  Otherwise, we don't assume its a script.   note this option is not recursive."
-		/options opt-blk [block! none!] "a block of options which can be easily cascaded and mutilated in recursive processing." 
-	][
-		vin "slap/preprocess()"
-		;destination:  none
-		
-		if file? origin [
-			v?? origin
-			origin: distro-path origin
-			
-			file: file-part origin 
-			file: rejoin [%pre-processed- file]
-			
-			v?? file
-			v?? origin
-			
-			
-			destination: substitute-file copy origin file
-			
-			v?? destination
-			
-			origin: read origin
-		]
-		
-		vprobe type? origin
-		
-		;--
-		; we skip rebol headers by default
-		if all [
-			;---
-			; this IS a rebol script
-			keep-header
-			not origin: extract-script origin
-		][
-			to-error "Unable to skip header, not a rebol script."
-		]
-		
-		i: 0
-		
-		parse/all origin [
-			any [
-				;------
-				;-        #INCLUDE
-				;--
-				; the basic include just does file substitution.
-				; it doesn't detect circular refs, so be careful.
-				;
-				; #INCLUDE IS recursive
-				[
-					op-start: "<#insert" opt [
-						any [
-							"/string"  ()   ; add outer brackets to insert as string.
-							"/only"    ()   ; don't recursively preprocess data, really just insert file here.
-							"/block"   ()   ; add output block brackets to essentially turn into a block of code (must be loadable data)
-							"/binary"  ()   ; convert data into a binary, if possible, or generate an error.
-							"/mold"    ()   ; load and mold/all the code.  preserving some types.
-						]
-					]
-					
-					some =whitespace= 
-					copy op to "#>" 
-					skip skip
-					op-end:
-					(
-						;---
-						; load the data
-						op: load op
-						
-						;---
-						; react based on type.
-						switch/default type?/word op [
-							file! [
-								;---
-								; optimise path
-								;
-								path: clean-path op
-	
-								unless exists? path [
-									vprint [ to-local-file clean-path path " Doesn't exist" ]
-									to-error "file access error"
-								]
-								data: read path
-								
-								;---
-								; store path
-								cwd: what-dir
-								
-								;---
-								; restore our working path
-								change-dir dir-part path
-								
-								;---
-								; using a recursive call to preprocess within parse, we are able to effectively cause 
-								; stack use, since the values are all contextualised to the function context by funcl.
-								data: preprocess/options data opt-blk
-								
-								;---
-								; restore our working path
-								change-dir cwd
-								
-								;---
-								; do the file replacement.
-								change/part op-start data op-end
-								
-								there: skip op-start  (length? data)
-							]
-						][
-							; nothing meaningful, just continue
-							
-							there: :op-start
-						]
-					) 
-					:there 
-				]
-				| skip (i: i + 1   if i > 100'000 [prin "." i: 0])
-			]
-		]
-		
-		v?? destination
-		
-		if destination [
-			write destination origin
-		]
-		
-		
-		data: destination: op-start: op-end: op: path: data: cwd: there: none
-		
-		
-		vout
-		first reduce [origin  origin: none]
-	]
-	
-		
 
 
 	;--------------------------
@@ -1329,11 +1551,97 @@ slim/register [
 	]
 	
 
+
+
+
+	;-----------------
+	;     slim-link()
+	;
+	; DEPRECATED function
+	;-----------------
+	slim-link: func [][to-error "slap/slim-link(): deprectated function, update to link-slim()"]
+
+
+	;-----------------
+	;-     link-slim()
+	;
+	; takes a file and slim-links it.
+	;
+	; all paths are relative to distro dir
+	;
+	; NOTE: the slim link lib and all paths leading to required libs MUST be setup prior.
+	;-----------------
+	link-slim: funcl [
+		input-path [file!]
+		/to output-path [file!]
+		/local input-dir input-file output-file output-dir data success?
+	][
+		vin [{link-slim()}]
+		
+		;----
+		; must specify an input
+		if input-file: filename-of input-path [
+			input-dir: any [ directory-of input-path copy %./ ]
+			
+			either to [
+				;----
+				; try to use whatever is given within output path, use input 
+				; as the default for the rest
+				output-dir:  any [directory-of output-path   input-dir]
+				output-file: any [filename-of  output-path   input-file]
+			][
+				;----
+				; use the input-path to build an output path automatically
+				output-dir:  input-dir
+				output-ext:  extension-of input-file
+				output-file: copy/part input-file ((length? input-file) - (length? output-ext) - 1)
+				output-file: rejoin [output-file %-linked "." output-ext]
+			]
+			
+			output-path: join output-dir output-file
+			
+			unless absolute-path? input-path [
+				input-path: join distro-dir input-path
+			]
+			unless absolute-path? output-path [
+				output-path: join distro-dir output-path
+			]
+			
+			input-path: clean-path input-path
+			output-path: clean-path output-path
+		
+			v?? input-path
+			v?? output-path
+	
+			; link the file
+			data: linker/link input-path
+			
+			; save it out.
+			write output-path data
+			
+			; just a little wait to be sure the app has finihsed flushing to disk before sending
+			; new call commands. (yes, I've had problems with this on windows)
+			wait 0.1
+			
+			success?: true
+		]
+	
+		vout
+		
+		success?
+	]
 	
 	
+	
+	
+
+
+	
+	
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
-	;- FILE OPERATION FUNCTIONS 
+	;- FILE OPERATION FUNCTIONS
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	
@@ -1389,18 +1697,19 @@ slim/register [
 		/as as-file [file!]  "Alternate destination/name.  must match the src filetype (file or directory)."
 		/to to-dir [file!] "Dump to a different path within the distro. MUST be a directory path.  You can use absolute paths."
 		/fetch "inverses the meaning of the distro and source directories"
-		/ignore ignore-list [file! block!] "one or more files or folders to ignore. (only considers last part of folder or file name."
+		/ignore ignore-list [file! block!] "one or more explicit files or folders to ignore. (only considers last part of folder or file name."
+		/filter exclude-list [block! file! string! none!] {file names or subparts you want to ignore, equal to "*text*".  so you can do ".xml" to ignore all XML files }
 		/local src-type file? dest abs-src  lcl-distro-dir lcl-source-dir file rblk
 	][
 		vin "slap/dump()"
 		v?? src
-		v?? as
-		v?? as-file
-		v?? to
-		v?? to-dir
-		v?? fetch
-		v?? ignore-list
-		vprint "-----------------------"
+;		v?? as
+;		v?? as-file
+;		v?? to
+;		v?? to-dir
+;		v?? fetch
+;		v?? ignore-list
+;		vprint "-----------------------"
 		
 		
 		;---------------------------------
@@ -1410,7 +1719,7 @@ slim/register [
 			block? src [
 				rblk: copy* []
 				foreach file src [
-					append rblk apply :dump [  file  copy  as  as-file  to  to-dir fetch ignore ignore-list ]
+					append rblk apply :dump [  file  copy  as  as-file  to  to-dir fetch ignore ignore-list filter exclude-list ]
 				]
 				vout
 				return rblk
@@ -1431,7 +1740,10 @@ slim/register [
 			lcl-source-dir: source-dir
 		]
 		
-		if copy [ lcl-source-dir: lcl-distro-dir ]
+		if copy [ 
+			vprint "copying a file in distro!"
+			lcl-source-dir: lcl-distro-dir 
+		]
 		;----
 		; we cannot ask for /AS and /TO in the same call.
 		if all [
@@ -1450,6 +1762,11 @@ slim/register [
 			abs-src: join dirize lcl-source-dir src
 		]
 		file?: not is-dir? abs-src
+		
+		;v?? lcl-source-dir
+		;v?? lcl-distro-dir
+		;v?? abs-src
+		
 		
 		if (file?) <> (not dir? abs-src) [
 			print [ "Dump() ERROR!! : specified source path does not match its type on disk." ]
@@ -1480,15 +1797,23 @@ slim/register [
 		
 		
 		;----
+		; destination filename is the same as source by default... some options may change this
+		dest: src
+		
+		;v?? dest
+		;v?? src
+		
+		;----
 		; absolute src dirs REQUIRE a /TO or /AS path
 		if all [
 			absolute-path? src
-			not any [to as]
+			not any [ to as ]
 		][
-			print [ "dump() ERROR: Absolute source paths, require you provide one of /TO or /AS refinements.^/Path given: " src ]
-			halt
+			print "Setting destination within root of distro"
+			dest: file-part src
+			;print [ "dump() ERROR: Absolute source paths, require you provide one of /TO or /AS refinements.^/Path given: " src ]
+			;halt
 		]
-		
 		
 		;----
 		; generate the destination path
@@ -1522,13 +1847,16 @@ slim/register [
 					rejoin [ to-dir   any [second split-path src "" ] ]
 				]
 			]
-			true [src]
+			
+			'default [
+				dest
+			]
 		]
-		
-		v?? fetch
-		v?? src
-		v?? dest
-		
+		;v?? fetch
+		;v?? src
+		;v?? abs-src
+		;v?? dest
+
 		;----------------
 		; don't put it in the list if you don't want it
 		;		if all [
@@ -1539,17 +1867,13 @@ slim/register [
 		;----------------
 		
 		dest: any [
-			all [file? fetch  (dump-file/fetch src dest) ]
-			all [file?  (dump-file src dest) ]
-			all [fetch ignore (dump-dir/fetch/ignore src dest ignore-list)]
-			all [fetch  (dump-dir/fetch src dest )]
-			all [ignore (dump-dir/ignore src dest ignore-list )]
-			dump-dir src dest
+			all [file? fetch  (dump-file/fetch abs-src dest) ]
+			all [file?  (dump-file abs-src dest) ]
+			all [fetch ignore (dump-dir/fetch/ignore/filter abs-src dest ignore-list exclude-list)]
+			all [fetch  (dump-dir/fetch/filter abs-src dest  exclude-list)]
+			all [ignore (dump-dir/ignore/filter abs-src dest ignore-list  exclude-list)]
+			dump-dir/filter abs-src dest  exclude-list
 		]
-		
-		
-		
-		
 		
 		vout
 		dest
@@ -1578,6 +1902,8 @@ slim/register [
 	][
 		vin "slap/dump-file()"
 		v?? fetch
+		v?? src
+		v?? dest
 		either fetch [
 			lcl-distro-dir: source-dir
 			lcl-source-dir: distro-dir
@@ -1604,14 +1930,14 @@ slim/register [
 			"  FROM: " src newline 
 			"  TO:   " dest  newline 
 		]
-
 			
 		unless exists? dir-part dest [make-dir/deep dir-part dest]
 
-		write/binary dest a: read/binary src
+		;write/binary dest a: read/binary src
+		os-copy src dest
 
-		clear a
-		a: none
+		;clear a
+		;a: none
 
 		vout
 		dest
@@ -1633,12 +1959,13 @@ slim/register [
 	;
 	; tests:    
 	;--------------------------
-	dump-dir: func [
+	dump-dir: funcl [
 		src [file!]
 		dest [file! none!]
 		/fetch
 		/ignore ignore-list [file! block!]
-		/local lcl-distro-dir lcl-source-dir
+		/filter exclude-list [block! file! string! none!] {file names or subparts you want to ignore, equal to "*text*".  so you can do ".xml" to ignore all XML files }
+		;/local lcl-distro-dir lcl-source-dir
 	][
 		vin "slap/dump-dir()"
 		
@@ -1673,7 +2000,7 @@ slim/register [
 		
 		unless exists?  dest [make-dir/deep dest]
 		
-		copy-dir/ignore src dest ignore-list
+		copy-dir/ignore/filter   src dest ignore-list exclude-list
 		vout
 		
 		dest
@@ -1695,8 +2022,8 @@ slim/register [
 	; tests:    
 	;--------------------------
 	rename*: funcl [
-		from
-		to
+		from   [file!]
+		to     [file!] "must not include a path part, if the spec is a dir, it must be the top dir."
 	][
 		vin "slap/rename*()"
 		
@@ -1725,6 +2052,7 @@ slim/register [
 	cleanup: func [
 		paths [file! block!]
 		/source "cleans the source directory, not the distro"
+		/content "removes files INSIDE any given folder path, erases content (file 0 bytes) when given a file path."
 		/local file?
 	][
 		vin [{cleanup()}]
@@ -1758,9 +2086,24 @@ slim/register [
 				either exists? path [
 					v?? path
 					either dir? path [
-						delete-dir path
+						either content [
+							;---
+							; we clear the content of the folder
+							list: read path
+							foreach item list [
+								delete-dir join path item
+							]
+						][
+							delete-dir path
+						]
 					][
-						delete path
+						either content [
+							;---
+							; we simply clear the content of the file.
+							write path ""
+						][
+							delete path
+						]
 					]
 				][
 					vprint ["file doesn't exist: " path]
@@ -1781,11 +2124,15 @@ slim/register [
 	create-dir: func [
 		path [file! block!]
 	][
+		vin "creating directories"
 		paths: compose [(path)]
 		
 		foreach path paths [
-			make-dir/deep clean-path join distro-dir dirize path
+			path: clean-path join distro-dir dirize path
+			vprobe path
+			make-dir/deep  path
 		]
+		vout
 	]
 	
 
@@ -1805,13 +2152,23 @@ slim/register [
 	;-------------------
 	;-     is-dir?()
 	;-----
-	is-dir?: func [path [string! file!]][
-		path: to-string path
-		replace/all path "\" "/"
+	is-dir?: funcl [path [string! file!]][
+;		path: to-string path ; copies input even when a string...
+;		replace/all path "\" "/"
+;		
+;		all [
+;			path: find/last/tail path "/"
+;			tail? path
+;		]
 		
+		;---
+		; this should be a much faster implementation.
 		all [
-			path: find/last/tail path "/"
-			tail? path
+			0 < length? path
+			any [
+				#"/" = tailchar: last path
+				#"\" = tailchar
+			]
 		]
 	]
 	
@@ -1820,19 +2177,23 @@ slim/register [
 	;-----------------
 	;-     dir-tree()
 	;-----------------
-	dir-tree: func [
+	dir-tree: funcl [
 		path [file!]
 		/root rootpath [file! none!]
 		/absolute "returns absolute paths"
 		/ignore ignore-list [block! none!] "doesn't list these"
-		/local list item data subpath dirpath rval
+		/filter exclude-list [block! file! string! none!] {file names or subparts you want to ignore, equal to "*text*".  so you can do ".xml" to ignore all XML files }
+		;/local list item data subpath dirpath rval
 	][
+		;vin "dir-tree()"
+		;v?? rootpath
 		rval: copy []
 		either root [
 			unless exists? rootpath [
 				to-error rejoin [ "compiler/dir-tree()" path " does not exist" ]
 			]
 		][
+		;	vprobe "NO ROOT"
 			either is-dir? path [
 				rootpath: path
 				path: %./
@@ -1861,16 +2222,39 @@ slim/register [
 					
 					; list content of this new path item (files are returned directly)
 					either absolute [
-						data: dir-tree/root/absolute/ignore subpath rootpath ignore-list
+						data: dir-tree/root/absolute/ignore/filter subpath rootpath ignore-list exclude-list
 					][
-						data: dir-tree/root/ignore subpath rootpath ignore-list
+						data: dir-tree/root/ignore/filter subpath rootpath ignore-list exclude-list
 					]
+					;---
+					; data may be a file or a block of files/folders
 					if (length? data) > 0 [
 						append rval data
 					]
 				]
 			]
 		][
+			if exclude-list [
+				switch/all type?/word exclude-list [
+					file! string! [
+						exclude-list: reduce [as-string exclude-list]
+					]
+					block! file! string![
+						;vprint "filtering out exclude-list"
+						;v?? path 
+						;v?? exclude-list
+						foreach text exclude-list [
+							if find path text [
+								;vprint "skipping! this file"
+								;ask "..."
+								return ""
+							]
+						]
+						;ask "..."
+					]
+				]
+			]
+					
 			if absolute [
 				path: clean-path join rootpath path
 			]
@@ -1882,6 +2266,11 @@ slim/register [
 			rval: new-line/all  head sort rval true
 		]
 		
+		;v?? root
+		;unless root [
+		;v?? rval
+		;]
+		;vout
 		rval
 	]
 
@@ -1890,11 +2279,12 @@ slim/register [
 	;-----------------
 	;-     copy-dir()
 	;-----------------
-	copy-dir: func [
+	copy-dir: funcl [
 		source  [file!]
 		dest [file!]
 		/ignore ignore-list [block! none!] "VERY SIMPLE list of files to ignore. no differentiation between folders and files."
-		/local list
+		/filter exclude-list [block! file! string! none!] {file names or subparts you want to ignore, equal to "*text*".  so you can do ".xml" to ignore all XML files }
+		;/local list
 	][
 		vin [{copy-dir()}]
 		
@@ -1910,7 +2300,7 @@ slim/register [
 			ignore-list: []
 		]
 		either is-dir? dest [
-			foreach file dir-tree/ignore source ignore-list [
+			foreach file dir-tree/ignore/filter source ignore-list exclude-list [
 				path-bits: itemize-path file
 				;v?? path-bits
 				;v?? ignore-list
@@ -1920,7 +2310,9 @@ slim/register [
 					either is-dir? file [
 						make-dir/deep join dest file
 					][
-						write/binary join dest file read/binary vprobe clean-path join source file
+						os-copy  clean-path join source file   clean-path join dest file
+						vprobe clean-path join dest file
+						;write/binary join dest file read/binary vprobe clean-path join source file
 					]
 				][
 					vprint [ "IGNORING: " join source file]
@@ -2009,7 +2401,13 @@ slim/register [
 	
 	
 	
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- UNREVISED
+	;
+	;-----------------------------------------------------------------------------------------------------------
+	
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2021,82 +2419,6 @@ slim/register [
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	;-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-	
-	
-	
-	
-	;-----------------
-	;-     slim-link()
-	;
-	; takes a file in the distro-dir and slim-links it.
-	;
-	; you must have loaded slim prior to calling this function.
-	;
-	; note that if you only specify an input-path, this function
-	; will overwrite it with its linked version.
-	;-----------------
-	slim-link: func [
-		input-path [file!]
-		/to output-path [file!]
-		/distro "relative file paths are relative to distro instead of source"
-		/local input-dir input-file output-file output-dir data success?
-	][
-		vin [{slim-link()}]
-	
-		; must specify an input
-		if input-file: file-part input-path [
-		
-			input-dir: any [dir-part input-path copy %./]
-			either to [ 
-				; try to use whatever is given within output path, use input 
-				; as the default otherwise.
-				output-dir:  any [dir-part output-path    input-dir]
-				output-file: any [file-part output-path   input-file]
-			][
-				; use the input-path to build an output path automatically
-				output-dir: input-dir
-				output-file: join %linked- input-file
-			]
-			
-			output-path: join output-dir output-file
-			
-			if distro [
-				unless absolute-path? input-path [
-					input-path: join distro-dir input-path
-				]
-				unless absolute-path? output-path [
-					output-path: join distro-dir output-path
-				]
-			]
-			
-			
-		
-			; get slim-link module.
-			linker: slim/open 'slim-link none
-	
-			v?? input-path
-			v?? output-path
-	
-			; link the file
-			data: linker/link input-path
-			
-			; save it out.
-			write output-path data
-			
-			; just a little wait to be sure the disk has finished before sending
-			; new call commands. (yes I've had problems with this on XP)
-			wait 0.1
-			
-			success?: true
-		]
-	
-		vout
-		
-		success?
-	]
-	
-	
-	
 	
 	
 	
