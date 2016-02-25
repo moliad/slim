@@ -155,6 +155,111 @@ REBOL [
 
 
 
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- SLIM-DEBUGGER
+;
+;-----------------------------------------------------------------------------------------------------------
+; we create the debugger context, allowing us to use it or not, without scripts crashing even if 
+; we aren't debugging.
+;--------------------------
+slim-debugger: context [
+	;--------------------------
+	;
+	;-     PROFILER
+	;
+	;--------------------------
+	profiler: context [
+		funcl-timing: make hash! []
+		
+		;--------------------------
+		;-             reset-timing()
+		;--------------------------
+		; purpose:  reset all accumulated timing information in funcl-timing block
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		reset-timing: func [
+			/local blk
+		][
+			blk: funcl-timing
+			until [
+				change next blk  [ 10:00:00    0:00:00    0 ]
+				blk: skip blk 4
+				tail? blk
+			]
+			blk: none
+		]
+		
+		
+		
+		;--------------------------
+		;-         stats()
+		;--------------------------
+		stats: func [
+			/limit count "Limits the display to the top (or least) count things, in each category."
+			/reset
+			/local blk tmp
+		][
+		
+			if reset [
+				reset-timing
+				return
+			]
+		
+			print "====================="
+			print " SLIM DEBUGGER STATS "
+			print "====================="
+			print ["funcl count: " to-integer ( (length? slim-debugger/profiler/funcl-timing) / 4) ]
+			print ""
+			print "+------------------------------+"
+			print "|  Profiler results - fastest  |"
+			print "+------------------------------+"
+			probe new-line/skip ( 
+				tmp: sort/skip/compare ( blk: to-block slim-debugger/profiler/funcl-timing ) 4 2 
+				if limit [
+					tmp: copy/part tmp (count * 4)
+				]
+				tmp
+			) true 4
+			
+			print ""
+			print "+------------------------------+"
+			print "|  Profiler results - slowest  |"
+			print "+------------------------------+"
+			probe new-line/skip (
+				tmp: sort/skip/reverse/compare ( blk ) 4 3 
+				if limit [
+					tmp: copy/part tmp (count * 4)
+				]
+				tmp
+			) true 4
+			
+			print ""
+			print "+------------------------------+"
+			print "|   Profiler results - usage   |"
+			print "+------------------------------+"
+			probe new-line/skip (
+				tmp: sort/skip/reverse/compare ( blk ) 4 4 
+				if limit [
+					tmp: copy/part tmp (count * 4)
+				]
+				tmp
+			) true 4
+			
+			blk: tmp: none
+		]
+	]
+]
 
 
 
@@ -163,28 +268,20 @@ REBOL [
 ;--------------------------
 ;- funcl()
 ;--------------------------
-; purpose: an alternative form for the 'FUNCT function builder.  using func spec semantics (/extern instead of /local)
-;
-; inputs:  a spec  and body which mimics 'FUNC but uses /EXTERN to define non-locals.
-;
-; returns: a new function
-;
-; notes:   /extern MUST be the last refinement of the func spec.
-;
-; why?:    using funct/extern is very cumbersome.
-;          It forces us to define the list of externs AFTER the function body, far away from the function's spec.
-;
-;          /extern MUST be the last refinement of the function.
-;          /local shoudn't be used... its undefined and unsupported behavior. (just put a set-word! in the func body (word: none) , if you need the extra local)
+; note that if the debugger is enabled, funcl is replaced at the end of this module.
 ;--------------------------
-funcl: func [spec body /local ext] [
+funcl: func [
+	spec 
+	body 
+	/pure  "do not use debugging on this function"
+	/local ext
+][
 	either ext: find spec /extern [
 		funct/extern copy/part spec ext body next ext
 	][
 		funct spec body
 	]
 ]
-
 
 
 
@@ -264,6 +361,17 @@ extract-set-words: func [
 ;
 ; tests:    
 ;--------------------------
+enum-ctx: context [
+	bit: func [
+		offset [integer!]
+	][
+		; we use 1 based index (so you use bits 1 - 32,  as opposed to 0 - 31)
+		offset: offset - 1
+		shift/left 1 offset
+	]
+	value: -1
+]
+
 enum: funcl [
 	[catch]
 	prefix    [word!]  "what is the prefix for this enum"
@@ -294,17 +402,38 @@ enum: funcl [
 								'=
 							]
 						]
-						set value [ integer!  |  word!]
+						copy enum-val [ 
+							integer!
+							| paren!
+							| 'bit [ paren! | integer! ] 
+							|  word!
+						]
+						(
+							;?? enum-val
+							;----
+							; evaluate the extracted value so we can auto-increment it later.
+							;bind value enum-ctx
+							
+							;?? enum-val
+							enum-val: head insert enum-val [value: ]
+							enum-val: to-paren enum-val
+							;probe :enum-val
+							enum-val: append/only copy [] :enum-val
+							;?? :enum-val
+						)
 					]
 					| [
 						set word word!  (
-							value: value + 1
+							enum-val: [(value: value + 1)]
 						)
 					]
 				]
 				(
-					append ctx-spec reduce [ to-set-word word  value ]
-					append ctx-spec reduce [ to-set-word join prefix to-string word  value ]
+					append ctx-spec to-set-word word
+					append ctx-spec enum-val
+					
+					append ctx-spec to-set-word join prefix to-string word
+					append ctx-spec [value]
 				)
 			]
 			
@@ -315,7 +444,17 @@ enum: funcl [
 		]
 	]
 	
+	bind ctx-spec enum-ctx
+	enum-ctx/value: -1
+	
+	;?? enum-list
+	;?? ctx-spec
+	
+	;print "=============================================="
 	ctx: context ctx-spec
+	;print "=============================================="
+	;probe ctx
+	
 	ctx-spec: none
 	value: none
 	ctx
@@ -481,6 +620,7 @@ platform-name: does [
 ; use these to allow slim modules to use core words without preventing their overwrite within a slim lib.
 ;-----------------------------------------------------------------------------------------------------------
 get*: :get
+open*: :open
 
 
 
@@ -1121,27 +1261,31 @@ SLiM: context [
 	;----------------
 	;-    v??()
 	;----
-	v??: func [
+	v??: funcl [
 		{Prints a variable name followed by its molded value. (for debugging) - (replaces REBOL mezzanine)}
 		'name
 		/always "always print, even if verbose is off"
 		/tags ftags "only effective if one of the specified tags exist in vtags"
-		/local value
 	][
-		value: either word? :name [
-			head insert tail form name reduce [": " mold name: get* name]
+		label: switch/default tp: type?/word :name [
+			word! [
+				rejoin [ form name ": " mold/all rval: get* :name ]
+			]
+			path! [
+				rejoin [ form :name ": " mold/all rval: do :name ]
+			]
 		][
-			mold :name
+			rejoin [ "" tp " : " mold/all rval: :name ]
 		]
 			
 		if print? always ftags [
-			indented-print value false false  ; in out
+			indented-print label false false  ; in out
 		]
 		if log? always ftags [
-			indented-print/log value false false  ; in out
+			indented-print/log label false false  ; in out
 		]
 			
-		:name
+		:rval
 	]
 	
 	
@@ -1577,6 +1721,7 @@ SLiM: context [
 		/prefix pfx-word [word! string! none!] "use this prefix instead of the default setup in the lib as a prefix to exposed words"
 		/quiet "Don't raise error when a lib isn't found.  This is sticky, once set all further opens are also quiet.   NOTE:  THIS MUST NEVER BE USED WITHIN LIBRARIES, ONLY ROOT SCRIPTS."
 		/silent "Eradicate vprint functionality in the library (cannot be undone)"
+		/platform "This is a platform specific library, we expect the file (and slim name) to be prefixed with the platform name (but not in your code)."
 		/local lib lib-file lib-hdr
 		;-----------------
 		; before v1.0.0 
@@ -1591,6 +1736,12 @@ SLiM: context [
 		if quiet [quiet?: true]
 		
 		lib-name: to-word lib-name ; make sure the name is a word.
+		
+		if platform [
+			lib-name: to-word rejoin [ "" lib-name  "-"  platform-name ]
+		]
+		
+		
 		
 		vprint ["MEM: " (stats / 1'000'000) "MB"]
 		;ask "======"
@@ -2167,7 +2318,7 @@ SLiM: context [
 
 
 	;-----------------
-	;-     application-path()
+	;-    application-path()
 	;-----------------
 	application-path: funcl [
 	][
@@ -2739,6 +2890,148 @@ SLiM: context [
 	;	return func func-args func-body
 	;]
 ]
+
+
 ;- SLIM / END
 
+
+
+
+
+;-                                                                                                         .
+;--------------------------
+;- funcl()
+;--------------------------
+; purpose: an alternative form for the 'FUNCT function builder.  using func spec semantics (/extern instead of /local)
+;
+; inputs:  a spec  and body which mimics 'FUNC but uses /EXTERN to define non-locals.
+;
+; returns: a new function
+;
+; notes:   /extern MUST be the last refinement of the func spec.
+;
+; why?:    using funct/extern is very cumbersome.
+;          It forces us to define the list of externs AFTER the function body, far away from the function's spec.
+;
+;          /extern MUST be the last refinement of the function.
+;          /local shoudn't be used... its undefined and unsupported behavior. (just put a set-word! in the func body (word: none) , if you need the extra local)
+;--------------------------
+if value? 'SLIM-DEBUG-PROFILE-FUNCL [
+
+context [
+	slim-debug-set*: :set
+	slim-debug-get*: :get
+	slim-debug-do*: :do
+	slim-debug-all*: :all
+	slim-debug-change*: :change
+	slim-debug-first*: :first
+	slim-debug-find*: :find
+	slim-debug-next*: :next
+	slim-debug-if*: :if
+	slim-debug-difference*: :difference
+	slim-debug-now*: :now
+	
+	slim-debug-get-tick: slim-debug-tick-lapse: none
+	
+	slim-debug-chrono-lib: slim/open/expose/platform 'chrono none [  slim-debug-get-tick: get-tick  slim-debug-tick-lapse: tick-lapse]
+	
+	;--------------------------------
+	; add profiling code to funcl generated functions
+	;--------------------------------
+	; just set the SLIM-DEBUG-PROFILE-FUNCL word to something before opening slim and all funcl functions will
+	; be profiled and their timing stored.
+	;
+	; you can look at timing withing slim/profiler/funcl
+	;-----
+	set 'funcl func [
+		spec [block!] 
+		body [block!] 
+		/pure "do not use debugging on this function"
+		/local ext funcname outer-body
+	][
+		either pure [
+			either ext: find spec /extern [
+				funct/extern copy/part spec ext body next ext
+			][
+				funct spec body
+			]
+		][
+			parse body [
+				'vin set funcname [string! | block!] (
+					if block? funcname [
+						;----
+						; generate a stable name, which we can search in the code.
+						funcname: mold funcname
+					]
+					;probe funcname
+					
+					append slim-debugger/profiler/funcl-timing reduce [
+						funcname   ; function string
+						10:00:00   ; fastest time
+						0:0:0      ; slowest time
+						0          ; call count
+					] ; 
+				)
+			]
+			outer-body: compose/only/deep [
+				slim-debugger-result: #[none]
+				slim-debugger-start: slim-debug-get-tick ; temporary, will replace with system tick counter
+				
+				;---
+				; execute function
+				slim-debug-set*/any 'slim-debugger-result slim-debug-do* ( body   ) ; we insert the body in the outer body, so funct can do its magic.
+				
+				;---
+				; update timing information in profile stats
+				slim-debugger-delay: slim-debug-tick-lapse slim-debugger-start
+				
+				slim-debug-if* slim-debugger-blk: slim-debug-find*/tail slim-debugger/profiler/funcl-timing (funcname) [
+					;---
+					; check and update fastest time
+					slim-debug-all* [
+						slim-debugger-delay < slim-debug-first* slim-debugger-blk
+						slim-debug-change* slim-debugger-blk slim-debugger-delay
+					]
+					
+					;---
+					; check and update slowest time
+					slim-debugger-blk: slim-debug-next* slim-debugger-blk
+					slim-debug-all* [
+						slim-debugger-delay > slim-debug-first* slim-debugger-blk
+						slim-debug-change* slim-debugger-blk slim-debugger-delay
+					]
+					
+					;---
+					; update call counter
+					slim-debugger-blk: slim-debug-next* slim-debugger-blk
+					slim-debug-change* slim-debugger-blk   1 + slim-debug-first* slim-debugger-blk
+				]
+				
+				
+				;---
+				; return any result generated by inner-body.
+				;
+				; unset! values are returned without error.
+				slim-debug-get*/any 'slim-debugger-result
+			]
+			
+			;probe outer-body
+			
+		
+			either ext: find spec /extern [
+				funct/extern copy/part spec ext outer-body next ext
+			][
+				funct spec outer-body
+			]
+		]
+	]
+]  ; end funcl
+
+]
+
+
+;----------
+; in any case, always return SLIM itself, necessary since we added the debug FUNC above
+;----------
+slim
 
