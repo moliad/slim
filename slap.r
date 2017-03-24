@@ -69,7 +69,10 @@ slim/register [
 	;-     LIBS
 	;
 	;-----------------------------------------------------------------------------------------------------------
-	slim/open/expose 'utils-files none [ substitute-file   itemize-path   extension-of   filename-of   directory-of   prefix-of   os-copy ] 
+	slim/open/expose 'utils-files none [ 
+		substitute-file   itemize-path   extension-of   
+		filename-of   directory-of   prefix-of   os-copy 
+	] 
 
 	linker: slim/open 'slim-link none
 	
@@ -298,20 +301,26 @@ slim/register [
 		/pro  "use enpro.exe"
 		/view "use enface.exe"
 		/base "use enbase.exe"
-		/basis   [word!]
+		/basis basename [word!]
 		/tmp tmpscript [file!]
-		/output out-name [ word! file! ] "file! is used as-is... word! gets .exe appended"
+		/output out-name [ word! file! ] "file! is used as-is... word! may .exe appended"
 		/local encapper
 	][
 		vin "slap/setup-encap()"
 		encap-path: clean-path sdk-dir
 		
+		
 		encapper: case [
-			pro  [   %enpro.exe  ]
-			cmd  [   %encmd.exe  ]
-			base [   %enbase.exe ]
-			view [   %enface.exe ]
-			'default [ %encmdview.exe ]
+			pro			[ 'enpro  ]
+			cmd			[ 'encmd  ]
+			;rebcmd		[ %rebcmd.exe  ]
+			base		[ 'enbase ]
+			view		[ 'enface ]
+			'default	[ 'encmdview ]
+		]
+		
+		if platform-name = 'win32 [
+			encapper: to-word rejoin ["" encapper ".exe"]
 		]
 		
 		if basis [
@@ -615,7 +624,8 @@ slim/register [
 		/pause "pause the encap process when it is done... allows to look at stats"
 	][
 		vin "sdk-prebol()"
-
+		v?? source-file
+		
 		here: what-dir ; memorise where we are , is restored before quitting
 		
 		wd: either encap-wd [
@@ -631,12 +641,6 @@ slim/register [
 		change-dir wd
 		source-file: distro-path source-file
 
-;		basis: prefix-of source-file
-;		any [
-;			prefix-of source-file
-;			distro-name
-;		]
-		
 		output-file:   any [
 			all [ 
 				file? out-name
@@ -648,7 +652,15 @@ slim/register [
 			]
 			to-file rejoin [ prefix-of source-file  "-preboled.r" ]
 		]
-
+		
+		; when the source is a relativ path, use its folder as the base destination.
+		if all [
+			not dest-dir 
+			not absolute-path? source-file
+		][
+			dest-dir: directory-of source-file
+		]
+		
 		if dest-dir [
 			output-file:    join dest-dir output-file
 		]
@@ -675,12 +687,12 @@ slim/register [
 		;---
 		execute rejoin [
 			to-local-file pre-rebol-script
-			" "
+			" {"
 			to-local-file source-file
-			" "
+			"} {"
 			to-local-file output-file
+			"} "
 		]
-		
 
 		; reset path to the path on entry.
 		change-dir here
@@ -729,6 +741,7 @@ slim/register [
 		;/local test out cmd
 	][
 		vin "slap/encap()"
+		bin-ext: either platform-name = 'win32 [".exe"][""]
 		
 		source-file: distro-path source-file
 				
@@ -739,9 +752,9 @@ slim/register [
 			]
 			all [
 				basis: prefix-of source-file
-				join basis ".exe"
+				join basis bin-ext
 			]
-			join to-file distro-name ".exe"
+			join to-file distro-name bin-ext
 		]
 		
 		output-dir: dirize any [
@@ -932,7 +945,7 @@ slim/register [
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    if /root is given, module's 'ROOT-DIR  value is changed.
 	;
 	; tests:    
 	;--------------------------
@@ -1209,6 +1222,7 @@ slim/register [
 			cmd
 		]
 		vprint mold new-line/all parse cmd " " true
+		;ask "go >"
 		call/wait/show cmd
 		vout
 	]
@@ -1240,12 +1254,13 @@ slim/register [
 	;           - /Line mode skips any whitespaces directly between your search and replace text.
 	; tests:    
 	;--------------------------
-	fix: fix*: func [
+	fix: fix*: funcl [
 		files [file! block!] ; distro-relative
 		fixes [string! block!]
 		/source "get the files in the source directory instead of the distro."
-		/lines "use line mode which searches string at start of line and replaces text AFTER it."
-		/local fix file data changed? dir path abs-path file? fix-to fixed-count file-list
+		/lines {Use line mode which searches string at start of line and replaces text AFTER it. 
+If the replacement is a NONE value, it will erase that whole line.}
+		;/local fix file data changed? dir path abs-path file? fix-to fixed-count file-list
 	][
 		vin [{fix()}]
 		v?? files
@@ -1273,6 +1288,8 @@ slim/register [
 			
 			abs-path: clean-path abs-path
 			
+			v?? abs-path
+			
 			unless exists? abs-path [
 				print [ "fix() ERROR!! : file doesn't exist: " abs-path ]
 				halt
@@ -1293,6 +1310,38 @@ slim/register [
 				
 				changed?: false
 				foreach [ srchstr  fix-to ] fixes [
+				
+					=replace-rule=: either none? fix-to [
+						[
+							; skip the newline if we're not at end of text
+							opt [ #"^/" .line-end: ]
+							(
+								remove/part .line-start .line-end
+								changed?: true
+							)
+							; reset cursor to start of line... text after it has been removed.
+							:.line-start
+						]
+					][
+						[
+							(
+								change/part here fix-to any [ all [ .foundstr length? .foundstr ] 0 ]
+								there: skip here length? fix-to
+								changed?: true
+							)
+							:there ; adjust cursor to end of fixed string
+							
+							;----
+							; we now skip the trailing newline
+							[
+								some =newline=
+								| end
+							]
+						]					
+					][
+					
+					
+					]
 					;v??  srchstr
 					either lines [
 						;----------------------------------
@@ -1302,6 +1351,8 @@ slim/register [
 						parse/all data [
 							any [
 									[
+										.line-start:
+										
 										;---
 										; skip search string AND any traling space, so indents are kept.
 										any =whitespace=
@@ -1318,19 +1369,8 @@ slim/register [
 												]
 											there:
 										]
-										(
-											change/part here fix-to any [ all [ .foundstr length? .foundstr ] 0 ]
-											there: skip here length? fix-to
-											changed?: true
-										)
-										:there ; adjust cursor to end of fixed string
-										
-										;----
-										; we now skip the trailing newline
-										[
-											some =newline=
-											| end
-										]
+										.line-end:
+										=replace-rule=
 									]
 									| [	some =text= =newline= ]
 									| [	=newline= ]
@@ -1676,6 +1716,31 @@ slim/register [
 	]
 	
 	
+	
+	;--------------------------
+	;-     duplicate()
+	;--------------------------
+	; purpose:  copies a file within the distro.
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	duplicate: funcl [
+		src [file!]
+		dest [file!]
+	][
+		vin "duplicate()"
+		src:  distro-path src
+		vout/return
+		dump-file src dest
+	]
 		
 	
 	;--------------------------
@@ -2190,6 +2255,7 @@ slim/register [
 		rval: copy []
 		either root [
 			unless exists? rootpath [
+				?? clean-path rootpath
 				to-error rejoin [ "compiler/dir-tree()" path " does not exist" ]
 			]
 		][
@@ -2204,9 +2270,15 @@ slim/register [
 		
 		dirpath: clean-path append copy rootpath path
 		
+		
 		either is-dir? dirpath [
 			; list directory content
-			list: read dirpath
+			if none? attempt [ 
+				list: read dirpath
+			][
+				print  ["error: unable to read: " dirpath ]
+				halt
+			]
 			
 			; append that path to the file list
 			append rval path
@@ -2300,7 +2372,10 @@ slim/register [
 			ignore-list: []
 		]
 		either is-dir? dest [
-			foreach file dir-tree/ignore/filter source ignore-list exclude-list [
+			flist: dir-tree/ignore/filter source ignore-list exclude-list
+			v?? flist
+			
+			foreach file flist [
 				path-bits: itemize-path file
 				;v?? path-bits
 				;v?? ignore-list
@@ -2310,8 +2385,8 @@ slim/register [
 					either is-dir? file [
 						make-dir/deep join dest file
 					][
-						os-copy  clean-path join source file   clean-path join dest file
 						vprobe clean-path join dest file
+						os-copy  clean-path join source file   clean-path join dest file
 						;write/binary join dest file read/binary vprobe clean-path join source file
 					]
 				][

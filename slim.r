@@ -174,7 +174,7 @@ slim-debugger: context [
 		funcl-timing: make hash! []
 		
 		;--------------------------
-		;-             reset-timing()
+		;-         reset-timing()
 		;--------------------------
 		; purpose:  reset all accumulated timing information in funcl-timing block
 		;
@@ -262,11 +262,16 @@ slim-debugger: context [
 ]
 
 
-
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- GLOBAL STUFF
+;
+;-----------------------------------------------------------------------------------------------------------
 
 
 ;--------------------------
-;- funcl()
+;-     funcl()
 ;--------------------------
 ; note that if the debugger is enabled, funcl is replaced at the end of this module.
 ;--------------------------
@@ -288,7 +293,7 @@ funcl: func [
 
 
 ;--------------------------
-;- extract-set-words()
+;-     extract-set-words()
 ;--------------------------
 ; purpose:  finds set-words within a block of code, hierarchically if required.
 ;
@@ -343,7 +348,7 @@ extract-set-words: func [
 
 
 ;--------------------------
-;- enum()
+;-     enum()
 ;--------------------------
 ; purpose:  make an enumerated value context for use with external libraries
 ;
@@ -462,7 +467,7 @@ enum: funcl [
 
 
 ;--------------------------
-;- flag-enum()
+;-     flag-enum()
 ;--------------------------
 ; purpose:  generates 
 ;
@@ -581,10 +586,9 @@ flag-enum: funcl [
 
 
 
-
 	
 ;--------------------------
-;- platform-name()
+;-     platform-name()
 ;--------------------------
 ; purpose:  returns the name of the platform this rebol was compiled for
 ;
