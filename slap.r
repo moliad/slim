@@ -72,9 +72,11 @@ slim/register [
 	slim/open/expose 'utils-files none [ 
 		substitute-file   itemize-path   extension-of   
 		filename-of   directory-of   prefix-of   os-copy 
+		dir-tree
 	] 
 
 	linker: slim/open 'slim-link none
+	
 	
 	
 	
@@ -991,7 +993,7 @@ slim/register [
 		;-----
 		; make sure we don't overwrite a distro without user confirmation.      
 		either exists? distro-dir [
-			confirm? ask rejoin [ "^/--------------------------^/WARNING ! a Distribution with this path: " distro-dir "^/already exists!^/^/ continuing will ERASE and rebuild this Distribution. ^/^/ press ^"Y^" and Enter to confirm, otherwise this script will abort." ]
+			confirm? ask rejoin [ "^/--------------------------^/WARNING ! a Distribution with this path: " distro-dir "^/already exists!^/^/ continuing will ERASE and rebuild this Distribution. ^/^/ press ^"Y^" and Enter to confirm, otherwise this script will abort." ] ; "^/"" ]  fix syntax highlighting
 			either all [
 				not empty? confirm?
 				confirm/1 = "y"
@@ -2240,9 +2242,9 @@ If the replacement is a NONE value, it will erase that whole line.}
 	
 
 	;-----------------
-	;-     dir-tree()
+	;-     -dir-tree()
 	;-----------------
-	dir-tree: funcl [
+	-dir-tree: funcl [
 		path [file!]
 		/root rootpath [file! none!]
 		/absolute "returns absolute paths"
