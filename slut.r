@@ -936,36 +936,6 @@ slim/register [
 			]
 			
 			
-			new time();
-			time.setnow();
-			
-			try {
-				result = test.do();
-				
-				if  (typeof(result) = "ComplexObject" ) {
-					result.value.toString();
-				} elseif ( typeof(result) = "integer" ) {
-					result.toString();
-				}
-				
-				
-			}
-			catch {
-				// disarm  Exception
-				// add message in result
-			}
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
 			success?: false
 			
 			append summary/report delay
