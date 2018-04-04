@@ -12,6 +12,7 @@ REBOL [
 	; -- Licensing details  --
 	copyright: "Copyright © 2014 Maxim Olivier-Adlhoch"
 	license-type: "Apache License v2.0"
+	license: {Copyright © 2014 Maxim Olivier-Adlhoch}
 	license: {Copyright © 2014 Maxim Olivier-Adlhoch
 
 	Licensed under the Apache License, Version 2.0 (the "License");
@@ -274,17 +275,22 @@ slim-debugger: context [
 ;-     funcl()
 ;--------------------------
 ; note that if the debugger is enabled, funcl is replaced at the end of this module.
+;
+; we 
 ;--------------------------
 funcl: func [
+	[catch]
 	spec 
 	body 
 	/pure  "do not use debugging on this function"
 	/local ext
 ][
-	either ext: find spec /extern [
-		funct/extern copy/part spec ext body next ext
-	][
-		funct spec body
+	throw-on-error [
+		either ext: find spec /extern [
+			funct/extern copy/part spec ext body next ext
+		][
+			funct spec body
+		]
 	]
 ]
 
@@ -1278,6 +1284,11 @@ SLiM: context [
 			path! [
 				rejoin [ form :name ": " mold/all rval: do :name ]
 			]
+			block! [
+				blk: reduce :name
+				rval: last blk
+				rejoin [mold/only :name " : "  mold/all/only :blk]
+			]
 		][
 			rejoin [ "" tp " : " mold/all rval: :name ]
 		]
@@ -1292,9 +1303,7 @@ SLiM: context [
 		:rval
 	]
 	
-	
-	
-	
+		
 	
 	;----------------
 	;-    vdump()
@@ -2948,84 +2957,87 @@ context [
 	; you can look at timing withing slim/profiler/funcl
 	;-----
 	set 'funcl func [
+		[catch]
 		spec [block!] 
 		body [block!] 
 		/pure "do not use debugging on this function"
 		/local ext funcname outer-body
 	][
-		either pure [
-			either ext: find spec /extern [
-				funct/extern copy/part spec ext body next ext
+		throw-on-error[
+			either pure [
+				either ext: find spec /extern [
+					funct/extern copy/part spec ext body next ext
+				][
+					funct spec body
+				]
 			][
-				funct spec body
-			]
-		][
-			parse body [
-				'vin set funcname [string! | block!] (
-					if block? funcname [
-						;----
-						; generate a stable name, which we can search in the code.
-						funcname: mold funcname
-					]
-					;probe funcname
-					
-					append slim-debugger/profiler/funcl-timing reduce [
-						funcname   ; function string
-						10:00:00   ; fastest time
-						0:0:0      ; slowest time
-						0          ; call count
-					] ; 
-				)
-			]
-			outer-body: compose/only/deep [
-				slim-debugger-result: #[none]
-				slim-debugger-start: slim-debug-get-tick ; temporary, will replace with system tick counter
-				
-				;---
-				; execute function
-				slim-debug-set*/any 'slim-debugger-result slim-debug-do* ( body   ) ; we insert the body in the outer body, so funct can do its magic.
-				
-				;---
-				; update timing information in profile stats
-				slim-debugger-delay: slim-debug-tick-lapse slim-debugger-start
-				
-				slim-debug-if* slim-debugger-blk: slim-debug-find*/tail slim-debugger/profiler/funcl-timing (funcname) [
-					;---
-					; check and update fastest time
-					slim-debug-all* [
-						slim-debugger-delay < slim-debug-first* slim-debugger-blk
-						slim-debug-change* slim-debugger-blk slim-debugger-delay
-					]
+				parse body [
+					'vin set funcname [string! | block!] (
+						if block? funcname [
+							;----
+							; generate a stable name, which we can search in the code.
+							funcname: mold funcname
+						]
+						;probe funcname
+						
+						append slim-debugger/profiler/funcl-timing reduce [
+							funcname   ; function string
+							10:00:00   ; fastest time
+							0:0:0      ; slowest time
+							0          ; call count
+						] ; 
+					)
+				]
+				outer-body: compose/only/deep [
+					slim-debugger-result: #[none]
+					slim-debugger-start: slim-debug-get-tick ; temporary, will replace with system tick counter
 					
 					;---
-					; check and update slowest time
-					slim-debugger-blk: slim-debug-next* slim-debugger-blk
-					slim-debug-all* [
-						slim-debugger-delay > slim-debug-first* slim-debugger-blk
-						slim-debug-change* slim-debugger-blk slim-debugger-delay
-					]
+					; execute function
+					slim-debug-set*/any 'slim-debugger-result slim-debug-do* ( body   ) ; we insert the body in the outer body, so funct can do its magic.
 					
 					;---
-					; update call counter
-					slim-debugger-blk: slim-debug-next* slim-debugger-blk
-					slim-debug-change* slim-debugger-blk   1 + slim-debug-first* slim-debugger-blk
+					; update timing information in profile stats
+					slim-debugger-delay: slim-debug-tick-lapse slim-debugger-start
+					
+					slim-debug-if* slim-debugger-blk: slim-debug-find*/tail slim-debugger/profiler/funcl-timing (funcname) [
+						;---
+						; check and update fastest time
+						slim-debug-all* [
+							slim-debugger-delay < slim-debug-first* slim-debugger-blk
+							slim-debug-change* slim-debugger-blk slim-debugger-delay
+						]
+						
+						;---
+						; check and update slowest time
+						slim-debugger-blk: slim-debug-next* slim-debugger-blk
+						slim-debug-all* [
+							slim-debugger-delay > slim-debug-first* slim-debugger-blk
+							slim-debug-change* slim-debugger-blk slim-debugger-delay
+						]
+						
+						;---
+						; update call counter
+						slim-debugger-blk: slim-debug-next* slim-debugger-blk
+						slim-debug-change* slim-debugger-blk   1 + slim-debug-first* slim-debugger-blk
+					]
+					
+					
+					;---
+					; return any result generated by inner-body.
+					;
+					; unset! values are returned without error.
+					slim-debug-get*/any 'slim-debugger-result
 				]
 				
+				;probe outer-body
 				
-				;---
-				; return any result generated by inner-body.
-				;
-				; unset! values are returned without error.
-				slim-debug-get*/any 'slim-debugger-result
-			]
 			
-			;probe outer-body
-			
-		
-			either ext: find spec /extern [
-				funct/extern copy/part spec ext outer-body next ext
-			][
-				funct spec outer-body
+				either ext: find spec /extern [
+					funct/extern copy/part spec ext outer-body next ext
+				][
+					funct spec outer-body
+				]
 			]
 		]
 	]

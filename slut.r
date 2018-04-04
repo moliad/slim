@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | Unit testing"
 	file: %slut.r
-	version: 1.0.2
-	date: 2013-10-03
+	version: 1.0.3
+	date: 2018-04-04
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Unit testing integrated into slim using inlined test definitions.}
 	web: http://www.revault.org/modules/slut.rmrk
@@ -17,9 +17,9 @@ REBOL [
 	slim-update: http://www.revault.org/downloads/modules/slut.r
 
 	; -- Licensing details  --
-	copyright: "Copyright © 2013 Maxim Olivier-Adlhoch"
+	copyright: "Copyright © 2018 Maxim Olivier-Adlhoch"
 	license-type: "Apache License v2.0"
-	license: {Copyright © 2013 Maxim Olivier-Adlhoch
+	license: {Copyright © 2018 Maxim Olivier-Adlhoch
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -52,7 +52,12 @@ REBOL [
 			
 		v1.0.2 - 2013-10-03
 			-added support for comment lines in test-groups, via =test-newlines= rule.
-}
+			
+		v1.0.3 - 2018-04-04
+			-DO-TESTS Result now includes timing information.
+			-DO-TESTS now supports two tag filtering modes
+			
+}			
 	;-  \ history
 
 	;-  / documentation
@@ -137,7 +142,7 @@ slim/register [
 	;- LIBS
 	;
 	;-----------------------------------------------------------------------------------------------------------
-	slim/open/expose/platform 'chrono none [ chrono-time time-lapse ]
+	slim/open/expose/platform 'chrono none [ chrono-time dt: time-lapse ]
 	slim/open/expose 'utils-blocks none [ set-tag ]
 	slim/open/expose 'utils-series none [ count contains? ]
 
@@ -214,6 +219,22 @@ slim/register [
 	; joins the two things above into a single list.
 	;--------------------------
 	process-list-stack: []
+	
+	
+
+	;--------------------------
+	;-     summary-columns:
+	;
+	; stores how many columns are in the summary result block of 'DO-TESTS
+	;--------------------------
+	summary-columns: 5
+	
+	;--------------------------
+	;-     summary-header-elements:
+	;
+	; how many items are in the header data of the 'DO-TESTS summary
+	;--------------------------
+	summary-header-elements: 4
 	
 	
 	
@@ -778,18 +799,58 @@ slim/register [
 	; tests:    
 	;--------------------------
 	do-tests: funcl [
-		/only labels [block! word!]  "The test(s) to perform."
+		/any-of labels [block! word!]  "Run any test tagged with AT LEAST one of the given tags."
+		/all-of alabels [block! word!]  "Run tests tagged with ALL given tags."
 		/verbose
+		
+		; deprecated
+		/only olabels [block! word!] "deprecated name for /any-of"
 	][
 		vin "slut/do-tests()"
-		v?? labels
-		
-		
-		current-file: none
 		
 		;----
 		; local declarations
+		current-file: none
 		rval: none 
+		
+		
+		
+		;--------------------------
+		; setup filtering
+		;--------------------------
+;		; we pick which set of labels to use based on function's arguments.
+;		labels: compose [(any [alabels labels olabels])] 
+;		
+;		remove-each label labels [
+;			; if no label was given, labels will end up being an empty block.
+;			not word? label
+;		]
+;		
+;		; we setup as unfiltered, if we end up with no labels in block
+;		if empty? labels [
+;			labels: none
+;		]
+		
+		;--------------------------
+		; setup filtering
+		;--------------------------
+		labels: all [
+			blk: compose [(any [alabels labels olabels])] 
+		
+			remove-each label blk [
+				; if no valid label was given, labels will end up being an empty block.
+				not word? label
+			]
+			
+			; we setup as unfiltered, if we end up with no labels in block
+			not empty? blk
+
+			; all is good, we have some labels.
+			blk
+		]
+		
+		v?? labels ; remove this line
+		
 		
 		
 		do-inits ; this can be called over and over, it will only do anything if new inits are found
@@ -798,26 +859,36 @@ slim/register [
 		summary: make !summary []
 		summary/labels: labels
 		
-		;----
-		; get list of tests to execute
-		either labels [
-			labels: compose [ (labels) ]
-			blk: clear [  ]
-			
-			foreach test tests [
-				if contains? test/labels labels [
-					vprint ["test match " test/labels]
-					append blk test
+		filtered-tests: copy tests
+		
+		;---------------
+		; setup list of tests to execute
+		;
+		; (by default we run all tests)
+		;---------------
+		case [
+			;---
+			; filter out any test which doesn't have AT LEAST one of the given tags
+			(any-of) [
+				vprint ["keeping tests matching any of " labels]
+				remove-each test filtered-tests [
+					not contains? test/labels labels
 				]
 			]
 			
-		][
-			blk: tests
+			;---
+			; filter out any test which doesn't have ALL given tags
+			(all-of) [
+				vprint ["keeping tests matching all of " labels]
+				remove-each test filtered-tests [
+					not contains?/all test/labels labels
+				]
+			]
 		]
 		
 		
 		i: 0
-		foreach test blk [
+		foreach test filtered-tests [
 			;--------
 			; track test #
 			i: i + 1
@@ -828,9 +899,9 @@ slim/register [
 			
 			if current-file  <> (current-file: select test/meta 'file) [
 				append summary/report reduce [
-					'- '----------------------- '- '-
-					'- current-file '- '-
-					'- '----------------------- '- '-
+					'-------------------------
+					'- current-file 
+					'-------------------------
 				]
 			]
 			
@@ -853,14 +924,51 @@ slim/register [
 				print ""
 			]
 			
-			either error? err: try [set/any 'rval do test/code if unset? get/any 'rval [none]] [
+			either error? err: try [ 
+				delay: dt [
+					set/any 'rval do test/code if unset? get/any 'rval [none]
+				] 
+			][
 				rval: disarm err
 				tp: 'error!
 			][
 				tp: type?/word get/any 'rval
 			]
 			
+			
+			new time();
+			time.setnow();
+			
+			try {
+				result = test.do();
+				
+				if  (typeof(result) = "ComplexObject" ) {
+					result.value.toString();
+				} elseif ( typeof(result) = "integer" ) {
+					result.toString();
+				}
+				
+				
+			}
+			catch {
+				// disarm  Exception
+				// add message in result
+			}
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
 			success?: false
+			
+			append summary/report delay
 			
 			;------------
 			; evaluate return type to determine if the test failed or succeeded
@@ -915,7 +1023,7 @@ slim/register [
 		
 		]
 		
-		new-line/all/skip summary/report true 4
+		new-line/all/skip ( skip summary/report summary-header-elements ) true summary-columns
 			
 		
 		vout
@@ -1495,8 +1603,6 @@ slim/register [
 		
 		vout
 	]
-	
-
 
 ]
 
@@ -1508,3 +1614,4 @@ slim/register [
 ;
 ;------------------------------------
 
+ 

@@ -293,7 +293,7 @@ slim/register [
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    by default we use the COMMAND VIEW encapper which has all the feature of rebol.
 	;
 	; tests:    
 	;--------------------------
