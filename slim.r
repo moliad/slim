@@ -150,6 +150,9 @@ REBOL [
 			- removed some calls to LIB?
 			- moved the last call to LIB?() within REGISTER()
 			- updated LIB? conditions, moved some of the previous lib? checks to VALIDATE-LIB-HEADER()
+		
+		v1.3.1 - 2018-09-13
+			- added explicit header validation to make sure the slim-name is the same as the actual file name
 			
 	}
 	;-  \ history
@@ -1769,7 +1772,7 @@ SLiM: context [
 	;----------------
 	;-    open()
 	;----
-	OPEN: func [
+	OPEN: funct [
 		"Open a library module.  If it is already loaded from disk, then it returns the memory cached version instead."
 		lib-name [word! string! file!] "The name of the library module you wish to open.  This is the name of the file on disk.  Also, the name in its header, must match. when using a direct file type, lib name is irrelevant, but version must still be qualified."
 		version [integer! decimal! none! tuple! word!] "minimal version of the library which you need, all versions should be backwards compatible."
@@ -1781,7 +1784,7 @@ SLiM: context [
 		/quiet "Don't raise error when a lib isn't found.  This is sticky, once set all further opens are also quiet.   NOTE:  THIS MUST NEVER BE USED WITHIN LIBRARIES, ONLY ROOT SCRIPTS."
 		/silent "Eradicate vprint functionality in the library (cannot be undone)"
 		/platform "This is a platform specific library, we expect the file (and slim name) to be prefixed with the platform name (but not in your code)."
-		/local lib lib-file lib-hdr
+		;/local lib lib-file lib-hdr
 		;-----------------
 		; before v1.0.0 
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
@@ -1866,7 +1869,7 @@ SLiM: context [
 			]
 		]
 		
-		;vprobe type? lib
+		v?? type? lib
 		
 		; in any case, check if user wanted to expose new words
 		if all [
@@ -1896,9 +1899,10 @@ SLiM: context [
 		exp-words: none
 		pfx-word: none
 		
-		vout "]"
+		v?? [type? lib]
 		self/opening-lib-name: prev-opening-lib
-		return first reduce [lib lib: none]
+		vout 
+		first reduce [ lib lib: none ]
 	]
 
 
@@ -2267,7 +2271,10 @@ SLiM: context [
 	][
 		vin "SLIM-ERROR !!! : "
 		if self/opening-lib-name [
-			msg: rejoin ["" rejoin msg " (lib: '" self/opening-lib-name ")"]
+			if block? msg [
+				msg: rejoin msg
+			]
+			msg: rejoin [""  msg " (lib: '" self/opening-lib-name ")"]
 		]
 		either quiet? [
 			vprint msg
@@ -2568,7 +2575,9 @@ any library pointing to the old version still points to it.
 	;----
 	; make sure a given library header is valid for an application's requirements.
 	;----
-	validate-lib-header: funcl [header][
+	validate-lib-header: funcl [
+		header
+	][
 		vin "SLiM/validate-lib-header()"
 		success: false
 		ver: system/version
@@ -2592,6 +2601,18 @@ any library pointing to the old version still points to it.
 			any [
 				manager-version >= lib-ver 
 				slim-error ["SLiM/lib?(): ERROR!! required version of slim (v" lib-ver ") is higher than installed version. (v" manager-version ")"  ]
+			]
+			any [
+				lib-name: in header 'slim-name
+				slim-error "SLiM/lib?(): ERROR!! lib file must specify a 'slim-name:"
+			]
+			any [
+				word? lib-name: get lib-name
+				slim-error "SLiM/lib?(): ERROR!! library header's slim-name must be a word!"
+			]
+			any [
+				lib-name = self/opening-lib-name
+				slim-error "SLiM/lib?(): ERROR!! library header's slim-name must match the disk filename of the library"
 			]
 		]
 		
