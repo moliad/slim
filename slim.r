@@ -2,7 +2,7 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.3.0
+	version: 1.3.1
 	date: 2018-09-13
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
