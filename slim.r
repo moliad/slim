@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.2.7
-	date: 2014-09-12
+	version: 1.3.0
+	date: 2018-09-13
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -140,6 +140,17 @@ REBOL [
 		v1.2.6 - 2014-09-12
 			-file logging now has a separate verbosity switch, allowing us to have console off, and logging on.
 			-added vlog-on  vlog-off
+			
+		v1.2.9 - 2018-08-31
+			-merged bit(xx) syntax to the ENUM-FLAGS dialect
+			
+		v1.3.0 - 2018-09-13
+			- Fixed a MASSIVE hole in implementation.  we forgot to do the slim manager version check.
+			- VALIDATE() renamed to VALIDATE-LIB-HEADER()
+			- removed some calls to LIB?
+			- moved the last call to LIB?() within REGISTER()
+			- updated LIB? conditions, moved some of the previous lib? checks to VALIDATE-LIB-HEADER()
+			
 	}
 	;-  \ history
 
@@ -390,9 +401,9 @@ enum: funcl [
 	/flags "Use alternate flag mode flag-enum() function."
 ][
 
-	if flags [
+	(if flags ([
 		return flag-enum prefix enum-list
-	]
+	]))
 
 	ctx-spec: copy []
 	value: -1
@@ -405,6 +416,8 @@ enum: funcl [
 			[
 				[
 					[
+						;----
+						; field name
 						[
 							set word set-word!
 							
@@ -413,13 +426,27 @@ enum: funcl [
 								'=
 							]
 						]
-						copy enum-val [ 
+
+						;----
+						; value
+						copy enum-val [
 							integer!
 							| paren!
-							| 'bit [ paren! | integer! ] 
-							|  word!
+							| 'bit [ paren! | integer! ]
+							| [
+								;----
+								; manual setup 
+								[
+									word! 
+									any [
+										[ 'OR  |  '| ]
+										word! 
+									]
+								]
+							]
 						]
-						(
+						( 
+							replace/all enum-val '| 'OR 
 							;?? enum-val
 							;----
 							; evaluate the extracted value so we can auto-increment it later.
@@ -427,6 +454,7 @@ enum: funcl [
 							
 							;?? enum-val
 							enum-val: head insert enum-val [value: ]
+							
 							enum-val: to-paren enum-val
 							;probe :enum-val
 							enum-val: append/only copy [] :enum-val
@@ -441,6 +469,7 @@ enum: funcl [
 				]
 				(
 					append ctx-spec to-set-word word
+					;?? enum-val
 					append ctx-spec enum-val
 					
 					append ctx-spec to-set-word join prefix to-string word
@@ -745,11 +774,28 @@ SLiM: context [
 
 
 	;--------------------------
+	;-     opening-lib-name:
+	; we try to store the library name which is attempting to load...
+	;
+	; the goal is to be able to re-use it within SLIM-ERROR()
+	;--------------------------
+	opening-lib-name: none
+	
+
+
+	;--------------------------
 	;-     quiet?:
 	;
 	; do we raise slim loading/creation errors, or simply ignore them?
 	;--------------------------
 	quiet?: false
+	
+	
+	;--------------------------
+	;-     manager-version:
+	;
+	;--------------------------
+	manager-version: system/script/header/version
 	
 	
 
@@ -1723,7 +1769,7 @@ SLiM: context [
 	;----------------
 	;-    open()
 	;----
-	OPEN: func [ 
+	OPEN: func [
 		"Open a library module.  If it is already loaded from disk, then it returns the memory cached version instead."
 		lib-name [word! string! file!] "The name of the library module you wish to open.  This is the name of the file on disk.  Also, the name in its header, must match. when using a direct file type, lib name is irrelevant, but version must still be qualified."
 		version [integer! decimal! none! tuple! word!] "minimal version of the library which you need, all versions should be backwards compatible."
@@ -1741,6 +1787,7 @@ SLiM: context [
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		;-----------------
 	][
+		prev-opening-lib: self/opening-lib-name
 		vprint/in ["SLiM/Open( " uppercase to-string lib-name " " either version [ rejoin ["v" version] ][ " any version"  ]  " ) ["]
 		if new [
 			vprint "Loading a NEW INSTANCE of the library in RAM"
@@ -1754,6 +1801,7 @@ SLiM: context [
 			lib-name: to-word rejoin [ "" lib-name  "-"  platform-name ]
 		]
 		
+		self/opening-lib-name: lib-name
 		
 		
 		vprint ["MEM: " (stats / 1'000'000) "MB"]
@@ -1794,12 +1842,20 @@ SLiM: context [
 		; check for existence of library in cache
 		lib: self/cached? lib-name
 		
-		either ((lib <> none) AND (new = none))[
+		either all [
+			lib 
+			not new
+		][
 			vprint [ {SLiM/open() reusing "} lib-name {"  module} ]
 		][
 			vprint [ {SLiM/open() loading "} lib-file {"  module} ]
 			either lib-file [
 				do lib-file
+				
+				;--
+				; we reset the name, since a sub-module may have already replaced it.
+				self/opening-lib-name: lib-name
+
 				lib: self/cached? lib-name
 			][
 				either quiet [
@@ -1810,11 +1866,11 @@ SLiM: context [
 			]
 		]
 		
+		;vprobe type? lib
 		
-		
-		; in any case, check if used didn't want to expose new words
+		; in any case, check if user wanted to expose new words
 		if all [
-			lib? lib
+			lib
 			expose
 		][
 			either prefix [
@@ -1839,7 +1895,9 @@ SLiM: context [
 		lib-hdr: none
 		exp-words: none
 		pfx-word: none
-		vprint/out "]"
+		
+		vout "]"
+		self/opening-lib-name: prev-opening-lib
 		return first reduce [lib lib: none]
 	]
 
@@ -2036,7 +2094,7 @@ SLiM: context [
 		
 		;--------------
 		; make sure library meets all requirements
-		either self/validate(hdrblk) [
+		either self/validate-lib-header(hdrblk) [
 			;--------------
 			; compile library specification
 			
@@ -2049,7 +2107,7 @@ SLiM: context [
 			
 			
 			
-			lib-spec: head insert lib-spec compose [ 
+			lib-spec: head insert lib-spec compose [
 				header: (hdrblk)
 				;just allocate object space
 ;				rsrc-path: (:copy) what-dir
@@ -2107,6 +2165,8 @@ SLiM: context [
 			; create library        
 			lib:  make object! lib-spec
 			
+
+
 			
 			; set resource-dir local to library
 ;			vprint ["setting  resource path for lib " hdrblk/title]
@@ -2154,6 +2214,11 @@ SLiM: context [
 				success: true
 			]
 			
+
+			;--------------
+			; a verification that given lib is valid.        
+			lib? lib
+
 			
 			either success [
 				;--------------
@@ -2201,12 +2266,17 @@ SLiM: context [
 		msg
 	][
 		vin "SLIM-ERROR !!! : "
+		if self/opening-lib-name [
+			msg: rejoin ["" rejoin msg " (lib: '" self/opening-lib-name ")"]
+		]
 		either quiet? [
 			vprint msg
 		][
 			to-error msg
 		]
 		vout
+		; help to short circuit a any/all block
+		none
 	]
 	
 	
@@ -2214,24 +2284,28 @@ SLiM: context [
 	;----------------
 	;-    lib?()
 	;----
-	lib?: func [
+	lib?: funct [
 		"returns true if you supply a valid library module object, else otherwise."
 		lib
 	][
-		either object? lib [
-			either in lib 'header [
-				either in lib/header 'slim-version [
-					return true
-				][
-					slim-error "SLiM/lib?(): ERROR!! lib file must specify a 'slim-version:"
-				]
-			][
+		all [
+			any [
+				object? :lib
+				slim-error "SLiM/lib?(): ERROR!! supplied data is not an object!"
+			]
+			any [
+				in lib 'verbose
+				slim-error "SLiM/lib?(): ERROR!! registered lib doesn't contain verbose attribute!?"
+			]
+			any [
+				in lib 'header
 				slim-error "SLiM/lib?(): ERROR!! supplied lib file has no header!"
 			]
-		][
-			slim-error "SLiM/lib?(): ERROR!! supplied data is not an object!"
+			any [
+				in lib/header 'slim-name
+				slim-error "SLiM/lib?(): ERROR!! lib file must specify a 'slim-name: in its header"
+			]
 		]
-		return false
 	]
 	
 	
@@ -2241,16 +2315,16 @@ SLiM: context [
 	;----
 	cache: func [
 {
-		copy the new library in the libs list.
-		NOTE that the current library will be replaced if one is already present. but
-		any library pointing to the old version still points to it.
+copy the new library in the libs list.
+NOTE that the current library will be replaced if one is already present. but
+any library pointing to the old version still points to it.
 }
 		lib "Library module to cache."
 		/remove "Removes the lib from cache"
 		/local ptr
 	][
 		vin "slim/cache()"
-		either lib? lib [
+		;either lib? lib [
 			;vprobe to-string lib/header
 			either remove [
 				if ( cached? lib/header/slim-name )[
@@ -2268,9 +2342,11 @@ SLiM: context [
 				insert tail libs lib/header/slim-name
 				insert tail libs lib
 			]
-		][
-			slim-error "SLiM/cache(): ERROR!! supplied argument is not a library object!"
-		]
+		;][
+		;	vout
+		;	slim-error "SLiM/cache(): ERROR!! supplied argument is not a library object!"
+		;]
+		vprint "slim/cache done!"
 		vout
 	]
 
@@ -2488,17 +2564,36 @@ SLiM: context [
 	
 	
 	;----------------
-	;-    validate()
+	;-    validate-lib-header()
 	;----
 	; make sure a given library header is valid for an application's requirements.
 	;----
-	validate: function [header][pkg-blk package-success][
-		vprint/in ["SLiM/validate() ["]
+	validate-lib-header: funcl [header][
+		vin "SLiM/validate-lib-header()"
 		success: false
 		ver: system/version
 		
 		;probe ver
 		;probe self/open-version
+		;------------------
+		; verify if slim version is recent enough for this library.
+		;---
+		all [
+			any [
+				lib-ver: in header 'slim-version
+				slim-error "SLiM/lib?(): ERROR!! lib file must specify a 'slim-version:"
+			]
+			any [
+				tuple? lib-ver: get lib-ver
+				slim-error "SLiM/lib?(): ERROR!! slim-version: must be a tuple! value"
+			]
+			;probe self/opening-lib-name
+			;?? lib-ver
+			any [
+				manager-version >= lib-ver 
+				slim-error ["SLiM/lib?(): ERROR!! required version of slim (v" lib-ver ") is higher than installed version. (v" manager-version ")"  ]
+			]
+		]
 		
 		;strip OS related version
 		ver: to-tuple reduce [ver/1 ver/2 ver/3]
@@ -2521,9 +2616,9 @@ SLiM: context [
 					]
 					if not success [
 						either package-success [
-							vprint "SLiM/validate() rebol version mismatch"
+							vprint "SLiM/validate-lib-header() rebol version mismatch"
 						][
-							vprint "SLiM/validate() rebol package mismatch"
+							vprint "SLiM/validate-lib-header() rebol package mismatch"
 						]
 					]
 				][
@@ -2537,9 +2632,9 @@ SLiM: context [
 		][
 			;----
 			; this is not an error, we might continue, until we find the proper message
-			vprint ["SLiM/validate() LIBRARY VERSION mismatch... needs v" self/open-version "   Found: v"header/version]
+			vprint ["SLiM/validate-lib-header() LIBRARY VERSION mismatch... needs v" self/open-version "   Found: v"header/version]
 		]
-		vprint/out "]"
+		vout
 		success
 	]
 	
@@ -2725,7 +2820,8 @@ SLiM: context [
 	; properties.
 	;----------------
 	expose: funcl [
-		lib [word! string! object!]
+		;lib [word! string! object!]
+		lib [object!]
 		words [word! block! none!]
 		/prefix pword
 		;/local reserved-words word rwords rsource rdest blk to from bind-reference
@@ -2747,8 +2843,7 @@ SLiM: context [
 		
 		;----
 		; make sure we have a lib object at this point
-		if lib? lib [
-			
+		if lib [
 			reserved-words: [
 				--init-- 
 				;load save read write 
