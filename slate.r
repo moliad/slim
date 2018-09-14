@@ -10,8 +10,8 @@ REBOL [
 	note: {slim Library Manager is Required to use this module.}
 
 	; -- slim - Library Manager --
-	slim-name: 'slide
-	slim-version: 1.2.7
+	slim-name: 'slate
+	slim-version: 1.3.1
 	slim-prefix: none
 	slim-update: http://www.revault.org/downloads/modules/slide.r
 
@@ -158,7 +158,7 @@ slim/register [
 		"Add / refresh a file in the documentation"
 		path [file!] "An absolute path."
 		root [file!] "From which root does was file accumulated.  All folders from here to the "
-		/docset document-set [word!] "Associate this file to which document set."
+		/docset document-set [word!] "Associate this file to a document set."
 		/except except-funcs [block!] "Ignore these things (functions, properties, etc)"
 	][
 		vin "slide/document-file()"
