@@ -75,7 +75,7 @@ slim/register [
 		dir-tree
 	] 
 
-	linker: slim/open 'slim-link none
+	linker: slim/open 'slink none
 	
 	
 	
