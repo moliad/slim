@@ -115,7 +115,7 @@ slim/register [
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	 
-	slim/open/expose 'utils-files none [ as-file   directory-of   absolute-path?]
+	slim/open/expose 'utils-files none [ as-file  filename-of  directory-of   absolute-path?]
 	slim/open/expose 'utils-strings none [ fill ]
 	slim/open/expose 'utils-script none  [ get-application-path ]
 	 
@@ -150,7 +150,7 @@ slim/register [
 	
 
 
-	;- !CONFIG []
+	;- !CONFIG [...]
 	; note that tags surrounded by '--' (--tag--) aren't meant to be substituted within the apply command.
 	!config: context [
 		!config?: true 
@@ -240,9 +240,12 @@ slim/register [
 		space-filled: none
 		
 		
-		
-		;-  
-		;- METHODS
+		;-                                                                                                       .
+		;-----------------------------------------------------------------------------------------------------------
+		;
+		;- FIELD RELATED METHODS
+		;
+		;-----------------------------------------------------------------------------------------------------------
 		
 		;-----------------
 		;-    protect()
@@ -653,111 +656,6 @@ slim/register [
 		
 		
 		;-----------------
-		;-    clone()
-		;-----------------
-		; take a !config and create a deep copy of it
-		;-----------------
-		clone: func [][
-			vin [{!config/clone()}]
-			vout
-			make self [
-				tags: make tags []
-				types: make types []
-				docs: make docs []
-				dynamic: make dynamic []
-				
-				if defaults [
-					defaults: make defaults []
-				]
-				
-				if save-point [
-					save-point: make save-point []
-				]
-				
-				; series copying is intrinsic to make object. 
-				;  protected 
-				;  error-modes
-				; space-filled
-			]
-		]
-		
-		
-		;-----------------
-		;-    backup()
-		;-----------------
-		; puts a copy of current tags info in store-point.
-		;-----------------
-		backup: func [
-		][
-			vin [{!config/backup()}]
-			save-point: make tags []
-			vout
-		]
-		
-		
-		;-----------------
-		;-    restore()
-		;-----------------
-		; restore the tags to an earlier or default state 
-		;
-		; not
-		;
-		; NB: -the tags are copied from the reference state... the tags object
-		;      itself is NOT replaced.
-		;     -if a ref-tags is used and it has new unknown tags, they are ignored
-		;
-		; WARNING: when called, we LOOSE current tags data
-		;
-		; <TODO>: enforce types?.  In the meanwhile, we silently use the ref-tags directly.
-		;-----------------
-		restore: func [
-			/visible "do not restore concealed values."
-			/safe "do not restore protected values."
-			/reset "restore to defaults instead of save-point,  WARNING!!: also clears save-point."
-			/using ref-tags [object!] "Manually supply a set of tags to use... mutually exclusive to /reset, this one has more strength."
-			/create "new tags should be created from ref-tags."
-			/keep-unrefered "Any tags which are missing in ref-tags, default or save point are not cleared."
-			/local tag tag-list val ref-words
-		][
-			vin [{!config/restore()}]
-			
-			tag-list: list/opt reduce [either visible ['visible][] either safe ['safe][]]
-			;v?? tag-list
-			ref-tags: any [
-				ref-tags
-				either reset [
-					save-point: none
-					self/defaults
-				][
-					save-point ; configure function creates a save-point by default.
-				]
-			]
-			vprint "restoring to:"
-			;vprobe ref-tags
-			if ref-tags [
-				foreach tag any [
-					all [
-						create
-						words-of ref-tags
-					]
-					tag-list
-				][
-					;?? tag
-					if any [
-						not keep-unrefered
-						in ref-tags tag
-						create
-					][
-						*get (in ref-tags tag)
-						set/overide tag *get (in ref-tags tag)
-					]
-				]
-			]
-			vout
-		]
-		
-		
-		;-----------------
 		;-    delete()
 		; remote a tag from configs
 		;-----------------
@@ -913,6 +811,46 @@ slim/register [
 			output
 		]
 		
+		
+		;-                                                                                                       .
+		;-----------------------------------------------------------------------------------------------------------
+		;
+		;- FILE METHODS
+		;
+		;-----------------------------------------------------------------------------------------------------------
+
+
+		;--------------------------
+		;-    set-path()
+		;--------------------------
+		; purpose:  change the current file path to use for this config
+		;
+		; inputs:   if given a simple filename (no dir) then uses current dir or default-store-path dir.
+		;
+		; returns:  new path
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		set-path: funcl [
+			filepath [file!]
+			/extern store-path
+		][
+			vin "set-path()"
+			unless filename-of filepath [to-error "configurator/set-store-file() requires a filename in given filepath"]
+			
+			either absolute-path? filepath [
+				store-path: clean-path filepath
+			][
+				dir: directory-of any [store-path default-store-path]
+				store-path: clean-path join dir filepath
+			]
+			vout
+			store-path
+		]
 		
 		;--------------------------
 		;-    resolve-path()
@@ -1089,7 +1027,7 @@ slim/register [
 		to-disk: func [
 			/to path [file!]
 			/relax
-			/only hook [function!] "only same out some of the data, will apply mold-hook, relax MUST also be specified"
+			/only hook [function!] "only save out some of the data, will apply mold-hook, relax MUST also be specified"
 			/local tag
 		][
 			vin [{!config/to-disk()}]
@@ -1129,6 +1067,141 @@ slim/register [
 		]
 		
 		
+
+		;-                                                                                                       .
+		;-----------------------------------------------------------------------------------------------------------
+		;
+		;- SETUP, STOREPOINTS AND CREATION
+		;
+		;-----------------------------------------------------------------------------------------------------------
+		
+				
+		
+		;-----------------
+		;-    init()
+		;-----------------
+		init: func [
+		][
+			vin [{!config/init()}]
+			tags: context []
+			save-point: none
+			defaults: none
+			types: context []
+			docs: context []
+			concealed: *copy []
+			protected: *copy []
+			space-filled: *copy []
+			dynamic: context []
+			vout
+		]
+
+
+		;-----------------
+		;-    clone()
+		;-----------------
+		; take a !config and create a deep copy of it
+		;-----------------
+		clone: func [][
+			vin [{!config/clone()}]
+			vout
+			make self [
+				tags: make tags []
+				types: make types []
+				docs: make docs []
+				dynamic: make dynamic []
+				
+				if defaults [
+					defaults: make defaults []
+				]
+				
+				if save-point [
+					save-point: make save-point []
+				]
+				
+				; series copying is intrinsic to make object. 
+				;  protected 
+				;  error-modes
+				; space-filled
+			]
+		]
+		
+		
+		;-----------------
+		;-    backup()
+		;-----------------
+		; puts a copy of current tags info in store-point.
+		;-----------------
+		backup: func [
+		][
+			vin [{!config/backup()}]
+			save-point: make tags []
+			vout
+		]
+		
+		
+		;-----------------
+		;-    restore()
+		;-----------------
+		; restore the tags to an earlier or default state 
+		;
+		; not
+		;
+		; NB: -the tags are copied from the reference state... the tags object
+		;      itself is NOT replaced.
+		;     -if a ref-tags is used and it has new unknown tags, they are ignored
+		;
+		; WARNING: when called, we LOOSE current tags data
+		;
+		; <TODO>: enforce types?.  In the meanwhile, we silently use the ref-tags directly.
+		;-----------------
+		restore: func [
+			/visible "do not restore concealed values."
+			/safe "do not restore protected values."
+			/reset "restore to defaults instead of save-point,  WARNING!!: also clears save-point."
+			/using ref-tags [object!] "Manually supply a set of tags to use... mutually exclusive to /reset, this one has more strength."
+			/create "new tags should be created from ref-tags."
+			/keep-unrefered "Any tags which are missing in ref-tags, default or save point are not cleared."
+			/local tag tag-list val ref-words
+		][
+			vin [{!config/restore()}]
+			
+			tag-list: list/opt reduce [either visible ['visible][] either safe ['safe][]]
+			;v?? tag-list
+			ref-tags: any [
+				ref-tags
+				either reset [
+					save-point: none
+					self/defaults
+				][
+					save-point ; configure function creates a save-point by default.
+				]
+			]
+			vprint "restoring to:"
+			;vprobe ref-tags
+			if ref-tags [
+				foreach tag any [
+					all [
+						create
+						words-of ref-tags
+					]
+					tag-list
+				][
+					;?? tag
+					if any [
+						not keep-unrefered
+						in ref-tags tag
+						create
+					][
+						*get (in ref-tags tag)
+						set/overide tag *get (in ref-tags tag)
+					]
+				]
+			]
+			vout
+		]
+		
+		
+
 
 		
 		;-----------------
@@ -1175,26 +1248,6 @@ slim/register [
 			][
 				to-error "CONFIGURATOR/reset(): no default to restore!"
 			]
-			vout
-		]
-		
-		
-		
-		;-----------------
-		;-    init()
-		;-----------------
-		init: func [
-		][
-			vin [{!config/init()}]
-			tags: context []
-			save-point: none
-			defaults: none
-			types: context []
-			docs: context []
-			concealed: *copy []
-			protected: *copy []
-			space-filled: *copy []
-			dynamic: context []
 			vout
 		]
 		
