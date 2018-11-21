@@ -1,9 +1,9 @@
 rebol [
 	; -- Core Header attributes --
 	title: "slim-link - steel library module linker"
-	file: %slim-link.r
-	version: 1.0.1
-	date: 2013-9-9
+	file: %slink.r
+	version: 1.1
+	date: 2018-09-25
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {link apps which have references to slim modules inside.}
 	web: http://www.revault.org/modules/slim-link.rmrk
@@ -11,8 +11,8 @@ rebol [
 	note: {slim Library Manager is Required to use this module.}
 
 	; -- slim - Library Manager --
-	slim-name: 'slim-link
-	slim-version: 1.2.1
+	slim-name: 'slink
+	slim-version: 1.3.1
 	slim-prefix: none
 	slim-update: http://www.revault.org/downloads/modules/slim-link.r
 
@@ -65,6 +65,10 @@ rebol [
 
 		v1.0.1 - 9-Sep-2013
 			-license change to Apache v2
+			
+		v1.1.0 - 2018-09-25
+			- possibly skiped a few changes in the lib
+			- renamed library to slink.
 	}
 	;-  \ history
 
@@ -456,13 +460,33 @@ slim/register [
 		;slim-lib: script-body read  slim/slim-path/slim.r
 		
 		vprint "creating libs codex"
+		slim-mgr-script: read  slim/find-path %slim.r
+		
+		;---
+		; setup the version of slim being used so it is still accessible after being linked.
+		.slim-version?: false
+		v?? slim/manager-version
+		slim-ver: to-string slim/manager-version
+		parse/all slim-mgr-script [
+			some [
+				"linked-slim-version:" =whitespaces?= .here:  
+				["none" | "#[none]"] .there: 
+				(change/part .here slim-ver .there  .slim-version?: slim-ver )
+				| skip
+			]
+		]
+		;?? .slim-version?
+		unless .slim-version? [
+			to-error "slim library manger is invalid, it requires a linked-slim-version: set to NONE !!"
+		]
+		
 		libs-txt: append ( clear "" ) rejoin [
 			"^/^/^/"
 			";--------------------------------------------------------------------------------^/"
 			";--------------------------- LINKED WITH SLIM-LINK.r ----------------------------^/"
 			";--------------------------------------------------------------------------------^/^/"
 			;slim-lib
-			script-body read  slim/find-path %slim.r
+			script-body slim-mgr-script
 			"^/^/slim/linked-libs: []"
 			"^/^/^/"
 		]

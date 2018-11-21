@@ -675,9 +675,23 @@ R2?: not R3?
 ;- SLiM OBJECT / START
 ;-----------------------------------------------------------------
 SLiM: context [
+	;--------------------------
+	;-     linked-slim-version:
+	;
+	; when slim-linked, this is the version of the original slim library used.
+	;
+	; this on only used by slink, NEVER set this value.
+	;--------------------------
+	linked-slim-version: none
 	
-	id:         1       ; this holds the next serial number assigned to a library (not used, deprecate?)
-
+	
+	;--------------------------
+	;-     id:
+	; this holds the next serial number assigned to a library (not used, deprecate?)
+	;--------------------------
+	id: 1
+	
+	
 	;--------------------------
 	;-     default-lib-extension:
 	;
@@ -797,8 +811,11 @@ SLiM: context [
 	;--------------------------
 	;-     manager-version:
 	;
+	; sets the slim version for use by the run time.
+	;
+	; it will switch between the linked or run-time value, based on strartup.
 	;--------------------------
-	manager-version: system/script/header/version
+	manager-version: any [ linked-slim-version  system/script/header/version]
 	
 	
 
@@ -1328,7 +1345,7 @@ SLiM: context [
 	][
 		label: switch/default tp: type?/word :name [
 			word! [
-				rejoin [ form name ": " mold/all rval: get* :name ]
+				rejoin [ form name ": " any [attempt [mold/all rval: get* :name ]  rejoin [NAME ": !!! unable to mold value... too large or cyclical"]]]
 			]
 			path! [
 				rejoin [ form :name ": " mold/all rval: do :name ]
@@ -3163,7 +3180,7 @@ context [
 
 
 ;----------
-; in any case, always return SLIM itself, necessary since we added the debug FUNC above
+; Always return SLIM itself, necessary since we added the debug FUNC above
 ;----------
 slim
 
