@@ -2,8 +2,8 @@ rebol [
 	; -- Core Header attributes --
 	title: "SLIM | Application Configuration system"
 	file: %configurator.r
-	version: 1.0.3
-	date: 2015-06-24
+	version: 1.0.4
+	date: 2018-10-12
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Easy, Safe, Extensible, Auto-documenting, File-based, configuration management.}
 	web: http://www.revault.org/modules/configurator.rmrk
@@ -12,9 +12,8 @@ rebol [
 
 	; -- slim - Library Manager --
 	slim-name: 'configurator
-	slim-version: 1.2.1
+	slim-version: 1.3.1
 	slim-prefix: none
-	slim-update: http://www.revault.org/downloads/modules/configurator.r
 
 	; -- Licensing details  --
 	copyright: "Copyright © 2013 Maxim Olivier-Adlhoch"
@@ -286,9 +285,8 @@ slim/register [
 		;-----------------
 		;-    conceal()
 		;-----------------
-		conceal: func [
+		conceal: funcl [
 			tags [word! block!]
-			/local tag
 		][
 			vin [{!config/conceal()}]
 			
@@ -727,12 +725,11 @@ slim/register [
 		;-----------------
 		; list tags reflecting options.
 		;-----------------
-		list: func [
+		list: funcl [
 			/opt options "supply folowing args using block of options"
 			/safe "don't list protected"
 			/visible "don't list concealed"
 			/dynamic "Also list dynamic"
-			/local ignore list
 		][
 			vin [{!config/list()}]
 			
@@ -748,6 +745,8 @@ slim/register [
 				append ignore concealed
 			]
 			
+			v?? concealed
+			
 			if any [
 				safe
 				find options 'safe
@@ -761,8 +760,13 @@ slim/register [
 				append list next first self/dynamic
 			]
 			
+			result: exclude sort list ignore
+			
+			v?? result
+			
 			vout
-			exclude sort list ignore
+			
+			result
 		]
 		
 		
@@ -1026,7 +1030,7 @@ slim/register [
 		
 		to-disk: func [
 			/to path [file!]
-			/relax
+			/relax "allow dangerous types in file"
 			/only hook [function!] "only save out some of the data, will apply mold-hook, relax MUST also be specified"
 			/local tag
 		][
