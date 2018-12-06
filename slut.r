@@ -442,7 +442,7 @@ slim/register [
 		/extern inits
 	][
 		vin "add-init()"
-		v?? blk 
+		;v?? blk 
 		inits: [] ; note that this is a static block and will be re-used AFTER do-init clears inits.
 		append/only inits bind-test-block blk
 		new-line/all inits true
