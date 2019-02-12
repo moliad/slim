@@ -341,6 +341,33 @@ slim/register [
 		mem-usage: none
 		
 		
+		;--------------------------
+		;-         expect-error?:
+		;
+		; when set to true, the error reporting is inversed,
+		; we expect an error to occur, we are enforcing this specifically.
+		; 
+		; put the REBOL error code to expect 
+		; (we will compare the disarmed error)
+		;
+		; in the dialects, use a #xxx in front of the test.
+		;		ex:  #400 [ 0 / 0 ]
+		;
+		; you can optionaly add an error 'id as well, using a lit-word!
+		;		ex:  #400 'zero-divide [ 0 / 0 ]
+		;
+		;--------------------------
+		expect-error?: none
+		
+		
+		;--------------------------
+		;-         expect-error-id?:
+		; 
+		; stores the error ID as explained above
+		;--------------------------
+		expect-error-id?: none
+		
+		
 	]
 	
 	
@@ -943,7 +970,7 @@ slim/register [
 	;-     =test-block=:
 	;
 	; returns a slut-compliant block of code hidden within comments.
-	; multi-line blocks must start with <[ and end with ]> 
+	; multi-line BLOCKS must start with <[ and end with ]> 
 	;
 	; note that the <> chars are removed before loading the code.
 	;
@@ -1111,15 +1138,38 @@ slim/register [
 
 
 	;--------------------------
+	;-     =expect-error-spec=:
+	;
+	;--------------------------
+	=expect-error-spec=: [
+		(.err-num: none .err-id: none)
+		"#" copy .err-num some =digit= (.err-num: to-integer .err-num) ; got an error number
+		opt [
+			=whitespaces?= 
+			copy .err-id =lit-word!=
+			(.err-id: to-word next .err-id) ; got an error
+		] 
+		=whitespaces?= 
+	] 
+
+
+	;--------------------------
 	;-     =test=:
 	;
 	; a test specification
 	;--------------------------
 	=test=: [
 		
-		#";" =whitespaces?= "test" =whitespaces=   =labels=  ( .name: copy .labels )  =whitespaces?=
+		#";" 
+		=whitespaces?= 
 		
-		[ 
+		"test"
+		 =whitespaces= 
+		opt =expect-error-spec=
+		
+		 =labels=  ( .name: copy .labels )  =whitespaces?=
+		
+		[
 			;---------
 			; the preambles block is optional in simple TEST instructions
 			;---------
@@ -1131,8 +1181,8 @@ slim/register [
 			]
 			(
 				vin ["found a test: " .name]
-				v?? .blk 
-				v?? .preambles
+				;?? .blk 
+				;?? .preambles
 				
 				either .preambles [
 					tst: add-test/using .name .blk .preambles
@@ -1149,6 +1199,12 @@ slim/register [
 					.last-line 
 					file
 				]
+				
+				if .err-num [
+					tst/expect-error?: .err-num
+					tst/expect-error-id?: .err-id
+				]
+				
 				vout
 			)
 			
@@ -1166,7 +1222,7 @@ slim/register [
 	;-     =test-group=:
 	;
 	; a specification for many tests grouped under a common label and preamble setup.
-	; the preamble is only run one for the complete test group.
+	; the preamble is run for each test in the group.
 	;--------------------------
 	=test-group=: [
 		(.group: clear [])
@@ -1554,9 +1610,37 @@ slim/register [
 				; Erros
 				;----
 				error! [
-					summary/errors?: summary/errors? + 1
-					;rval: disarm rval
-					append summary/report replace/all replace/all (mold rval) "    " ""  "^/" "  "
+					; do we expect an error? 
+					either test/expect-error? [
+						either all [
+							; does the error code match
+							any [
+								test/expect-error? = 0 ; ANY error is good
+								test/expect-error? = rval/code
+							]
+							; do we also match an error id ?
+							any [
+								not test/expect-error-id?
+								test/expect-error-id? = rval/id
+							]
+						][
+							;----
+							; GOT EXPECTED ERROR
+							;----
+							success?: true
+							summary/succeeded?: summary/succeeded? + 1
+							append summary/report  'OK
+						][
+							; GOT UNEXPECTED ERROR FAIL!
+							summary/errors?: summary/errors? + 1
+							;rval: disarm rval
+							append summary/report replace/all replace/all (mold rval) "    " ""  "^/" "  "
+						]
+					][
+						summary/errors?: summary/errors? + 1
+						;rval: disarm rval
+						append summary/report replace/all replace/all (mold rval) "    " ""  "^/" "  "
+					]
 				]
 				
 				;----
