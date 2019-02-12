@@ -2,8 +2,8 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | Unit testing"
 	file: %slut.r
-	version: 1.0.3
-	date: 2018-04-04
+	version: 1.0.4
+	date: 2019-02-12
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Unit testing integrated into slim using inlined test definitions.}
 	web: http://www.revault.org/modules/slut.rmrk
@@ -176,6 +176,23 @@ slim/register [
 	; initialization code storage.
 	;--------------------------
 	inits: []
+	
+	
+	;--------------------------
+	;-     last-used-tags:
+	; when tags are used on a DO-TESTS() we store them here
+	; and can reuse them without specifying them again.
+	;--------------------------
+	last-used-tags: none
+	
+	
+	;--------------------------
+	;-     tags-mode:
+	; when using tags with DO-TESTS() did we use /ANY-OF or /ALL-OF
+	;--------------------------
+	tags-mode: none
+	
+	
 	
 	
 	;--------------------------
@@ -417,9 +434,10 @@ slim/register [
 	
 	
 	
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
-	;- FUNCTIONS
+	;- INTERNAL FUNCTIONS
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	
@@ -579,13 +597,13 @@ slim/register [
 	;--------------------------
 	;-     add-file()
 	;--------------------------
-	; purpose:  
+	; purpose:  add a file to our list of test files
 	;
 	; inputs:   
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    will not add the same file twice.
 	;
 	; tests:    
 	;--------------------------
@@ -593,9 +611,10 @@ slim/register [
 		file [ file! ]
 	][
 		vin "add-file()"
-		append file-list clean-path file
-		append process-list-stack clean-path file
-		
+		unless find file-list file [
+			append file-list clean-path file
+			append process-list-stack clean-path file
+		]
 		vout
 	]
 	
@@ -784,225 +803,6 @@ slim/register [
 	
 
 
-	;--------------------------
-	;-     do-tests()
-	;--------------------------
-	; purpose:  
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    when tests return a string, its considered a failure, and will be accumulated
-	;           within a list of messages to return to the user.
-	;
-	; tests:    
-	;--------------------------
-	do-tests: funcl [
-		/any-of labels [block! word!]  "Run any test tagged with AT LEAST one of the given tags."
-		/all-of alabels [block! word!]  "Run tests tagged with ALL given tags."
-		/verbose
-		
-		; deprecated
-		/only olabels [block! word!] "deprecated name for /any-of"
-	][
-		vin "slut/do-tests()"
-		
-		;----
-		; local declarations
-		current-file: none
-		rval: none 
-		
-		
-		
-		;--------------------------
-		; setup filtering
-		;--------------------------
-;		; we pick which set of labels to use based on function's arguments.
-;		labels: compose [(any [alabels labels olabels])] 
-;		
-;		remove-each label labels [
-;			; if no label was given, labels will end up being an empty block.
-;			not word? label
-;		]
-;		
-;		; we setup as unfiltered, if we end up with no labels in block
-;		if empty? labels [
-;			labels: none
-;		]
-		
-		;--------------------------
-		; setup filtering
-		;--------------------------
-		labels: all [
-			blk: compose [(any [alabels labels olabels])] 
-		
-			remove-each label blk [
-				; if no valid label was given, labels will end up being an empty block.
-				not word? label
-			]
-			
-			; we setup as unfiltered, if we end up with no labels in block
-			not empty? blk
-
-			; all is good, we have some labels.
-			blk
-		]
-		
-		v?? labels ; remove this line
-		
-		
-		
-		do-inits ; this can be called over and over, it will only do anything if new inits are found
-		
-		
-		summary: make !summary []
-		summary/labels: labels
-		
-		filtered-tests: copy tests
-		
-		;---------------
-		; setup list of tests to execute
-		;
-		; (by default we run all tests)
-		;---------------
-		case [
-			;---
-			; filter out any test which doesn't have AT LEAST one of the given tags
-			(any-of) [
-				vprint ["keeping tests matching any of " labels]
-				remove-each test filtered-tests [
-					not contains? test/labels labels
-				]
-			]
-			
-			;---
-			; filter out any test which doesn't have ALL given tags
-			(all-of) [
-				vprint ["keeping tests matching all of " labels]
-				remove-each test filtered-tests [
-					not contains?/all test/labels labels
-				]
-			]
-		]
-		
-		
-		i: 0
-		foreach test filtered-tests [
-			;--------
-			; track test #
-			i: i + 1
-			
-			;vprobe test
-			preambles: any [get-preambles test  []]
-			
-			
-			if current-file  <> (current-file: select test/meta 'file) [
-				append summary/report reduce [
-					'-------------------------
-					'- current-file 
-					'-------------------------
-				]
-			]
-			
-			;?? current-file
-			;ask ".."
-			
-			
-			
-			append summary/report select test/meta 'line
-			append summary/report rejoin [ "#" i  ]
-			append/only summary/report test/labels
-			
-			vprobe preambles
-			foreach preamble preambles [
-				do preamble/code
-			]
-			if verbose [
-				print rejoin ["=============== " i " =================" ]
-				probe test/code
-				print ""
-			]
-			
-			either error? err: try [ 
-				delay: dt [
-					set/any 'rval do test/code if unset? get/any 'rval [none]
-				] 
-			][
-				rval: disarm err
-				tp: 'error!
-			][
-				tp: type?/word get/any 'rval
-			]
-			
-			
-			success?: false
-			
-			append summary/report delay
-			
-			;------------
-			; evaluate return type to determine if the test failed or succeeded
-			switch/default tp [
-				;----
-				; Erros
-				;----
-				error! [
-					summary/errors?: summary/errors? + 1
-					;rval: disarm rval
-					append summary/report replace/all replace/all (mold rval) "    " ""  "^/" "  "
-				]
-				
-				;----
-				; Simple Failures
-				;----
-				none! unset!  [
-					append summary/report 'FAILED
-					summary/failed?: summary/failed? + 1
-				]
-				
-				;----
-				; Failure messages
-				;----
-				string! [
-					summary/failed?: summary/failed? + 1
-					append summary/report rval
-				]
-			
-			][
-				either #[false] = :rval [
-					;----
-					; Failure (false returned)
-					;----
-					summary/failed?: summary/failed? + 1
-					append summary/report  'FAILED
-				][
-					;----
-					; All is good
-					;----
-					success?: true
-					summary/succeeded?: summary/succeeded? + 1
-					append summary/report  'OK
-				]
-			]
-			
-			if verbose [
-				print ["test evalutated to type: " tp]
-				?? success?
-				print "================================^/"
-			]
-		
-		]
-		
-		new-line/all/skip ( skip summary/report summary-header-elements ) true summary-columns
-			
-		
-		vout
-		summary/total: summary/total
-		
-		summary
-	]
-	
-	
 	
 	;--------------------------
 	;-     count-line()
@@ -1034,6 +834,7 @@ slim/register [
 	
 	
 	
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
 	;- PARSE RULES
@@ -1535,10 +1336,10 @@ slim/register [
 		]
 	]
 
-
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
-	;- API
+	;- END USER SLUT API
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	
@@ -1574,6 +1375,331 @@ slim/register [
 		vout
 	]
 
+	;--------------------------
+	;-     do-tests()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    when tests return a string, its considered a failure, and will be accumulated
+	;           within a list of messages to return to the user.
+	;
+	; tests:    
+	;--------------------------
+	do-tests: funcl [
+		/any-of labels [block! word!]  "Run any test tagged with AT LEAST one of the given tags."
+		/all-of alabels [block! word!]  "Run tests tagged with ALL given tags."
+		/verbose
+		
+		; deprecated
+		/only olabels [block! word!] "deprecated name for /any-of"
+		
+		/extern tags-mode last-used-tags
+	][
+		vin "slut/do-tests()"
+		
+		if all [any-of  all-of][
+			vout
+			to-error "cannot use  /any-of  AND  /all-of  at the same time"
+		]
+		
+		
+		case [
+			any-of  [tags-mode: 'any]
+			all-of  [tags-mode: 'all]
+			'default [tags-mode: none]
+		]
+		
+		last-used-tags: any [ labels alabels ]
+		
+		;----
+		; local declarations
+		current-file: none
+		rval: none 
+		
+		
+		
+		;--------------------------
+		; setup filtering
+		;--------------------------
+;		; we pick which set of labels to use based on function's arguments.
+;		labels: compose [(any [alabels labels olabels])] 
+;		
+;		remove-each label labels [
+;			; if no label was given, labels will end up being an empty block.
+;			not word? label
+;		]
+;		
+;		; we setup as unfiltered, if we end up with no labels in block
+;		if empty? labels [
+;			labels: none
+;		]
+		
+		;--------------------------
+		; setup filtering
+		;--------------------------
+		labels: all [
+			blk: compose [(any [alabels labels olabels])] 
+		
+			remove-each label blk [
+				; if no valid label was given, labels will end up being an empty block.
+				not word? label
+			]
+			
+			; we setup as unfiltered, if we end up with no labels in block
+			not empty? blk
+
+			; all is good, we have some labels.
+			blk
+		]
+		
+		v?? labels ; remove this line
+		
+		
+		
+		do-inits ; this can be called over and over, it will only do anything if new inits are found
+		
+		
+		summary: make !summary []
+		summary/labels: labels
+		
+		filtered-tests: copy tests
+		
+		;---------------
+		; setup list of tests to execute
+		;
+		; (by default we run all tests)
+		;---------------
+		case [
+			;---
+			; filter out any test which doesn't have AT LEAST one of the given tags
+			(any-of) [
+				vprint ["keeping tests matching any of " labels]
+				remove-each test filtered-tests [
+					not contains? test/labels labels
+				]
+			]
+			
+			;---
+			; filter out any test which doesn't have ALL given tags
+			(all-of) [
+				vprint ["keeping tests matching all of " labels]
+				remove-each test filtered-tests [
+					not contains?/all test/labels labels
+				]
+			]
+		]
+		
+		
+		i: 0
+		foreach test filtered-tests [
+			;--------
+			; track test #
+			i: i + 1
+			
+			;vprobe test
+			preambles: any [get-preambles test  []]
+			
+			
+			if current-file  <> (current-file: select test/meta 'file) [
+				append summary/report reduce [
+					'-------------------------
+					'- current-file 
+					'-------------------------
+				]
+			]
+			
+			;?? current-file
+			;ask ".."
+			
+			
+			
+			append summary/report select test/meta 'line
+			append summary/report rejoin [ "#" i  ]
+			append/only summary/report test/labels
+			
+			vprobe preambles
+			foreach preamble preambles [
+				do preamble/code
+			]
+			if verbose [
+				print rejoin ["=============== " i " =================" ]
+				probe test/code
+				print ""
+			]
+			
+			either error? err: try [ 
+				delay: dt [
+					set/any 'rval do test/code if unset? get/any 'rval [none]
+				] 
+			][
+				rval: disarm err
+				tp: 'error!
+			][
+				tp: type?/word get/any 'rval
+			]
+			
+			
+			success?: false
+			
+			append summary/report delay
+			
+			;------------
+			; evaluate return type to determine if the test failed or succeeded
+			switch/default tp [
+				;----
+				; Erros
+				;----
+				error! [
+					summary/errors?: summary/errors? + 1
+					;rval: disarm rval
+					append summary/report replace/all replace/all (mold rval) "    " ""  "^/" "  "
+				]
+				
+				;----
+				; Simple Failures
+				;----
+				none! unset!  [
+					append summary/report 'FAILED
+					summary/failed?: summary/failed? + 1
+				]
+				
+				;----
+				; Failure messages
+				;----
+				string! [
+					summary/failed?: summary/failed? + 1
+					append summary/report rval
+				]
+			
+			][
+				either #[false] = :rval [
+					;----
+					; Failure (false returned)
+					;----
+					summary/failed?: summary/failed? + 1
+					append summary/report  'FAILED
+				][
+					;----
+					; All is good
+					;----
+					success?: true
+					summary/succeeded?: summary/succeeded? + 1
+					append summary/report  'OK
+				]
+			]
+			
+			if verbose [
+				print ["test evalutated to type: " tp]
+				?? success?
+				print "================================^/"
+			]
+		
+		]
+		
+		new-line/all/skip ( skip summary/report summary-header-elements ) true summary-columns
+			
+		
+		vout
+		summary/total: summary/total
+		
+		summary
+	]
+	
+	;--------------------------
+	;-     reload()
+	;--------------------------
+	; purpose:  flush all loaded data from files and reload their tests from scratch
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    also flushes inits and preamble
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	reload: funcl [
+		/extern inits preambles tests last-used-tags
+	][
+		vin "reload()"
+		
+		clear last-used-tags
+		last-used-tags: none
+		
+		if block? inits [
+			clear inits
+		]
+		inits: none
+
+		clear preambles
+		;preambles: copy []
+		
+		clear tests
+		;tests: copy []
+	
+		 
+		foreach file file-list [
+			extract file
+		]
+		vout
+	]
+	
+	
+	;--------------------------
+	;-     retest()
+	;--------------------------
+	; purpose:  reloads and test files
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	retest: funcl [
+		/verbose
+		/extern last-used-tags
+	][
+		vin "retest()"
+		tags: copy last-used-tags
+		
+		any?: tags-mode = 'any
+		all?: tags-mode = 'all
+		
+		
+		v?? tags
+		v?? any?
+		v?? all?
+		
+		reload
+		
+		last-used-tags: tags
+		v?? tags
+		v?? any?
+		v?? all?
+		
+		
+		rval: any [
+			all [verbose tags all?   do-tests/verbose/any-of last-used-tags ]
+			all [verbose tags any?   do-tests/verbose/all-of last-used-tags]
+			all [verbose             do-tests/verbose]
+			all [tags all? 			do-tests/all-of last-used-tags]
+			all [tags any? 			do-tests/any-of last-used-tags]
+			do-tests
+		]
+		
+		vout
+		rval
+	]
+	
 ]
 
 ;------------------------------------
