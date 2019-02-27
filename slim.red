@@ -1,9 +1,9 @@
 Red [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
-	file: %slim.r
+	file: %slim.red
 	version: 1.3.1
-	date: 2018-09-13
+	date: 2019-02-25
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -108,7 +108,7 @@ Red [
 		v1.2.1 - 2013-09-06
 			-new git-friendly packaging system.  slim.r now also looks if it parent dir is called /libs/.  when so, it uses
 			 that as its root path for library searching.
-			-added default-lib-extension to ease r2/r3 code-base integration
+			-added default-lib-extensions to ease r2/r3 code-base integration
 			
 	
 		v1.2.2 - 2013-11-02
@@ -308,11 +308,88 @@ slim-debugger: context [
 ;	]
 ;]
 
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- R2-BACKWARDS
+;
+;-----------------------------------------------------------------------------------------------------------
 funcl: :function
-funct: :function
 
+r2-backwards-ctx: context [
 
+	true?: function [val][not not :val]
 
+	parse: funcl [
+		input	[binary! any-block! any-string!]
+		rules	[block! string!]
+		/case	"Uses case-sensitive comparison"
+		/part	length		[number! series!] "Limit to a length or position"
+		/trace	callback	[function!]
+		/all	"In Red, parse/all = parse => ignore refinement"
+	][
+		either string! = type? rules [
+			; Split input
+			split input rules
+		][
+			; Normal parse
+			either case [
+				; Case
+				either part [
+					; Case - Part
+					either trace [
+						; Case - Part - Trace
+						parse/case/part/trace input rules length callback
+					][
+						; Case - Part - No trace
+						parse/case/part input rules length
+					]
+				][
+					; Case - No part
+					either trace [
+						; Case - No part - Trace
+						parse/case/trace input rules callback
+					][
+						; Case - No part - No trace
+						parse/case input rules
+					]
+				]	
+			][
+				; No case
+				either part [
+					; No case - Part
+					either trace [
+						; No case - Part - Trace
+						parse/part/trace input rules length callback
+					][
+						; No case - Part - No trace
+						parse/part input rules length
+					]
+				][
+					; No case - No part
+					either trace [
+						; No case - No part - Trace
+						parse/trace input rules callback
+					][
+						; No case - No part - No trace
+						parse input rules
+					]
+				]		
+			]
+		]
+	]
+
+	remove-each: funcl [
+		'word	[word! block!]	"Word or block of words to set each time."
+		data	[series!]		"The series to traverse (modified)."
+		body	[block!]		"Block to evaluate (return TRUE to remove)."
+	][
+		remove-each word data body
+		data
+	]
+
+	funct: :function ; <TODO>
+]
 
 ;--------------------------
 ;-     extract-set-words()
@@ -670,7 +747,7 @@ if value? 'open [
 	open*: :open
 ]
 
-; <SMC> Used for default-lib-extension -> Now set as .red
+; <SMC> Used for default-lib-extensions -> Now set as .red
 ;R3?: true? in system 'contexts
 ;R2?: not R3?
 
@@ -697,17 +774,14 @@ SLiM: context [
 	
 	
 	;--------------------------
-	;-     default-lib-extension:
+	;-     default-lib-extensions:
 	;
 	; setup the expected library extension for use by the current setup.
 	; changing it manually allows you to use a custom file extension of your choice.
 	;
-	; note that only ONE default extension can be setup at a time, so you still some
-	; constance in your file naming.
-	;
 	; when using slim/open you can supply an extension manually, allowing for per-application modules (plugin?) control.
 	;--------------------------
-	default-lib-extension: ".red"
+	default-lib-extensions: [".slred" ".red" ".slr2"]
 
 
 	;--------------------------
@@ -1812,12 +1886,12 @@ SLiM: context [
 	;----------------
 	;-    open()
 	;----
-	OPEN: funct [
+	OPEN: funcl [
 		"Open a library module.  If it is already loaded from disk, then it returns the memory cached version instead."
 		lib-name [word! string! file!] "The name of the library module you wish to open.  This is the name of the file on disk.  Also, the name in its header, must match. when using a direct file type, lib name is irrelevant, but version must still be qualified."
 		version [integer! float! none! tuple! word!] "minimal version of the library which you need, all versions should be backwards compatible."
 		/within path [file!] "supply an explicit paths dir to use.  ONLY this path is used, libs, slim path and current-dir are ignored."
-		/extension ext [string! word! file!] "what extension do we expect.  Its (.r/R2 and .reb/R3 by default).  Note: must supply the '.' "
+		/extension ext [string! word! file!] "what extension do we expect. Overrides default-extensions. with or without dot"
 		/new "Re-load the module from disk, even if one exists in cache."
 		/expose exp-words [block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		/prefix pfx-word [word! string! none!] "use this prefix instead of the default setup in the lib as a prefix to exposed words"
@@ -1830,19 +1904,51 @@ SLiM: context [
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		;-----------------
 	][
+		;--------------------------
+		; Standardize arguments:
+		;--------------------------
+		; Make sure lib-name is a word
+		lib-name: attempt [
+			any [
+				all [word? lib-name   lib-name]
+				all [
+					word? temp: load to-string lib-name
+					temp
+				]
+				to-error rejoin ["Slim/open() Invalid lib name: " lib-name]
+			]
+		]
+
+		if platform [
+			lib-name: to-word rejoin [ "" lib-name  "-"  platform-name ]
+		]
+
+		; Prefix extension with #"."
+		if ext [
+			ext: to-string ext
+			unless #"." = first ext [insert ext #"."]
+		]
+		
+		; Futureproof interface
+		; any word you want to use for version will disable explicit version needs
+		if word? version [
+			version: none
+		]
+		
+		;-----
+		; Initial opening trace 
 		prev-opening-lib: self/opening-lib-name
 		vprint/in ["SLiM/Open( " uppercase to-string lib-name " " either version [ rejoin ["v" version] ][ " any version"  ]  " ) ["]
 		if new [
 			vprint "Loading a NEW INSTANCE of the library in RAM"
 		]
 		
-		if quiet [quiet?: true]
-		
-		lib-name: to-word lib-name ; make sure the name is a word.
-		
-		if platform [
-			lib-name: to-word rejoin [ "" lib-name  "-"  platform-name ]
+		either self/opening-lib-name [
+			to-error "Can not use /quiet within Slim libraries."
+		][
+			if quiet [quiet?: true]
 		]
+		
 		
 		self/opening-lib-name: lib-name
 		
@@ -1853,24 +1959,52 @@ SLiM: context [
 		;probe "--------"
 		;probe self/paths
 		
-		ext: any [ext default-lib-extension]
-		
-		; any word you want to use for version will disable explicit version needs
-		if word? version [
-			version: none
-		]
-		
 		;probe type? linked-libs
 		;ask "@"
-		
+		;possible-exts
 		either none? linked-libs [
-			either file? lib-name [
-				lib-file: lib-name
-			][
-				lib-file: either within [
-					 rejoin [dirize path lib-name ext]
+;			<SMC> Always a word here so this check seems useless
+;			either file? lib-name [
+;				lib-file: lib-name
+;			][
+;				lib-file: either within [
+;					 rejoin [dirize path lib-name ext]
+;				][
+;					self/find-path to-file rejoin [lib-name ext]
+;				]
+;			]
+
+			; Find absolute path of the library to open
+			; Possible refinements combinations
+			;	1. within and extension => no lookup -> absolute path
+			;	2. within only => look for default extensions in provided path
+			;	3. extension only => look in default paths for specific extension
+			;	4. nothing => look for all possible extensions in all possible paths
+			lib-file: none
+			either within [
+				either ext [
+					; no lookup -> absolute path
+					lib-file: rejoin [dirize path lib-name ext]
 				][
-					self/find-path to-file rejoin [lib-name ext]
+					; Look for lib-name with default-lib-extensions in path
+					foreach ext-i default-lib-extensions [
+						filepath: rejoin [dirize path lib-name ext-i]
+						if exists? filepath [
+							lib-file: filepath
+							break
+						]
+					]
+				]
+			][
+				either ext [
+					; look in default paths for specific extension
+					lib-file: self/find-path to-file rejoin [lib-name ext]
+				][
+					; look for all possible extensions in all possible paths
+					foreach ext-i default-lib-extensions [
+						lib-file: self/find-path to-file rejoin [lib-name ext-i]
+						if lib-file [break]
+					]
 				]
 			]
 		][
@@ -2332,7 +2466,7 @@ SLiM: context [
 	;----------------
 	;-    lib?()
 	;----
-	lib?: funct [
+	lib?: funcl [
 		"returns true if you supply a valid library module object, else otherwise."
 		lib
 	][
@@ -2521,13 +2655,19 @@ any library pointing to the old version still points to it.
 		; notes: -There is no error checking, we assume the config is valid. 
 		;        -setup can be protected using normal disk security.
 		;-----
-		disk-paths: either (exists? p: rejoin [slim-path %slim-paths default-lib-extension]) [
-			reduce load p
-		][
-			[]
+;		disk-paths: either (exists? p: rejoin [slim-path %slim-paths default-lib-extensions]) [
+;			reduce load p
+;		][
+;			[]
+;		]
+		; <SMC> New code to support multiple default-extensions
+		foreach ext default-lib-extensions [
+			p: rejoin [slim-path %slim-paths ext]
+			if exists? p [
+				disk-paths: reduce load p
+				break ; If found, stop trying extensions
+			]
 		]
-
-	
 		
 		;----
 		; ordering of library search:
@@ -2567,45 +2707,42 @@ any library pointing to the old version still points to it.
 	;-    find-path()
 	;----
 	; finds the first occurence of file in all paths.
-	; if the file does not exist, it checks in urls and if it finds it there, 
-	; then it calls the download method.  And returns the path returned by download ()
-	;
-	; /next refinement will attempt to find occurence of file when /next is used, file actually is a filepath.
 	;----
 	find-path: funcl [
-		file
+		file	[file!]
 		/lib
+		/
 		;/local path item paths disk-paths p
 	][
 		vin ["SLiM/find-path(" file ")"]
 
 		paths: search-paths  ; v1.2.2 change
 		
-		foreach item paths [
-			vprint item
-			if file? item [
-				path: abspath item file
-				either exists? path [
+		foreach path paths [
+			vprint path
+			if file? path [
+				filepath: abspath path file
+				either exists? filepath [
 					either lib [
 						data: load/header/all lib-file
 						;probe first first data
 						either (in data 'slim-name ) [
 							break
 						][
-							path: none
+							filepath: none
 						]
 					][
 						break
 					]
 				][
-					path: none
+					filepath: none
 				]
 			]
 		]
 		
-		vprint path
+		vprint filepath
 		vout
-		return path
+		return filepath
 	]
 	
 
