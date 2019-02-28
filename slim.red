@@ -2,18 +2,17 @@ Red [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.red
-	version: 1.3.1
-	date: 2019-02-25
+	version: 2.0.0
+	date: 2019-02-27
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
 	source-encoding: "Windows-1252"
 
 	; -- Licensing details  --
-	copyright: "Copyright © 2014 Maxim Olivier-Adlhoch"
+	copyright: "Copyright © 2019 Maxim Olivier-Adlhoch"
 	license-type: "Apache License v2.0"
-	license: {Copyright © 2014 Maxim Olivier-Adlhoch}
-	license: {Copyright © 2014 Maxim Olivier-Adlhoch
+	license: {Copyright © 2019 Maxim Olivier-Adlhoch
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -154,6 +153,10 @@ Red [
 		v1.3.1 - 2018-09-13
 			- added explicit header validation to make sure the slim-name is the same as the actual file name
 			
+		v2.0.0 - 2019-02-27
+			- first Red version
+			
+			
 	}
 	;-  \ history
 
@@ -166,9 +169,27 @@ Red [
 
 
 
-
-
-
+;-----------------------------------------------------------------------------------------------------------
+;
+;- slim-header
+;
+;-----------------------------------------------------------------------------------------------------------
+either any [
+	none? system/script/parent
+	none? system/script/header
+][
+	;---
+	; full sub-script hierarchy is not yet enabled...
+	; find and load ourself.
+	script: read %slim.red
+	script: find/case script "Red"
+	slim-header: construct second load script
+	script: none ;erase script from RAM
+][
+	slim-header: system/script/header
+]
+;??  slim-header
+;print "!!!!!!!!!!!!"
 
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
@@ -283,113 +304,90 @@ slim-debugger: context [
 ;- GLOBAL STUFF
 ;
 ;-----------------------------------------------------------------------------------------------------------
-
-
 ;--------------------------
 ;-     funcl()
 ;--------------------------
-; note that if the debugger is enabled, funcl is replaced at the end of this module.
-;
-; we 
-;--------------------------
-;funcl: func [
-;	[catch]
-;	spec 
-;	body 
-;	/pure  "do not use debugging on this function"
-;	/local ext
-;][
-;	throw-on-error [
-;		either ext: find spec /extern [
-;			funct/extern copy/part spec ext body next ext
-;		][
-;			funct spec body
-;		]
-;	]
-;]
-
-;-                                                                                                       .
-;-----------------------------------------------------------------------------------------------------------
-;
-;- R2-BACKWARDS
-;
-;-----------------------------------------------------------------------------------------------------------
 funcl: :function
 
-r2-backwards-ctx: context [
 
-	true?: function [val][not not :val]
-
-	parse: funcl [
-		input	[binary! any-block! any-string!]
-		rules	[block! string!]
-		/case	"Uses case-sensitive comparison"
-		/part	length		[number! series!] "Limit to a length or position"
-		/trace	callback	[function!]
-		/all	"In Red, parse/all = parse => ignore refinement"
-	][
-		either string! = type? rules [
-			; Split input
-			split input rules
-		][
-			; Normal parse
-			either case [
-				; Case
-				either part [
-					; Case - Part
-					either trace [
-						; Case - Part - Trace
-						parse/case/part/trace input rules length callback
-					][
-						; Case - Part - No trace
-						parse/case/part input rules length
-					]
-				][
-					; Case - No part
-					either trace [
-						; Case - No part - Trace
-						parse/case/trace input rules callback
-					][
-						; Case - No part - No trace
-						parse/case input rules
-					]
-				]	
+;--------------------
+;-     merge()
+;
+; note:  - we manage the data in-place
+;        - copy if you want to preserve container as a spec
+;--------------------
+at*: :at
+skip*: :skip
+merge: function [
+	container [series!] "series to insert into" 
+	data "data to insert within, single value or series, a single value will be repeated as needed to reach end of container."
+	/between "Do not add item at end, only in-between container items."
+	/zero "insert data before first element of container"
+	/skip step [integer!] "skip container records when merging" 
+	/every n [integer!]   "view the data as fixed-sized records, first being always inserted. (ex: 2= 1 3 5 7)"
+	/amount a [integer!]  "insert this many elements from data at a time, if every is specified, this amount cannot be larger than it."
+	/at ata [integer! none!] "start merge at this offset within container, use none value to follow skip size"
+	/only "treat series data as single values (repeating the series in container till the end).  Note that data is not copied."
+	;/local repeat
+][
+	; usefull copy to end use of merge
+	if any [
+		not series? data
+		only
+	][data: head insert/only tail copy [] data repeat: true]
+	
+	either skip [step: step + 1][step: 1]
+	unless every [n: 1]
+	unless amount [a: 1]
+	unless zero [container: at* container 2]
+	if at [
+		if none? ata [ata: step]
+		container: skip* container ata
+	]
+	
+	; change amount functionality based on if every is specified.
+	if every [
+		either n >= a [n: n - a + 1][to-error "merge: amount cannot be larger than every"]
+	]
+	
+	until [
+		loop a [
+			unless any [
+				tail? data
+				all [
+					between 
+					tail? at* container step
+				]
 			][
-				; No case
-				either part [
-					; No case - Part
-					either trace [
-						; No case - Part - Trace
-						parse/part/trace input rules length callback
-					][
-						; No case - Part - No trace
-						parse/part input rules length
-					]
-				][
-					; No case - No part
-					either trace [
-						; No case - No part - Trace
-						parse/trace input rules callback
-					][
-						; No case - No part - No trace
-						parse input rules
-					]
-				]		
+				container: insert/only container first data
+				unless repeat [
+					data: at* data 2 ; skip to next item in data
+				]
+			]
+		]
+		
+		;stop merging past container
+		if tail? container [
+			data: tail data
+		]
+
+		container: at* container step + 1
+		unless repeat [
+			data: at* data n
+		]
+
+		any [
+			tail? data
+			all [
+				between 
+				tail? at* container step
 			]
 		]
 	]
-
-	remove-each: funcl [
-		'word	[word! block!]	"Word or block of words to set each time."
-		data	[series!]		"The series to traverse (modified)."
-		body	[block!]		"Block to evaluate (return TRUE to remove)."
-	][
-		remove-each word data body
-		data
-	]
-
-	funct: :function ; <TODO>
+	first reduce [ head container container: none data: none ]
 ]
+
+
 
 ;--------------------------
 ;-     extract-set-words()
@@ -733,6 +731,113 @@ platform-name: does [
 	] system/version/4 
 ]
 
+;--------------------------
+;-     to-error()
+;--------------------------
+to-error: funcl [
+	msg [string! block!]
+][
+	make error! msg
+]
+
+
+
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- R2-BACKWARDS
+;
+;-----------------------------------------------------------------------------------------------------------
+r2-backwards-ctx: context [
+	;--------------------------
+	;-     	true?()
+	;
+	;--------------------------
+	true?: function [val][not not :val]
+
+	;--------------------------
+	;-     	parse()
+	;
+	;--------------------------
+	parse: funcl [
+		input	[binary! any-block! any-string!]
+		rules	[block! string!]
+		/case	"Uses case-sensitive comparison"
+		/part	length		[number! series!] "Limit to a length or position"
+		/trace	callback	[function!]
+		/all	"In Red, parse/all = parse => ignore refinement"
+	][
+		either string! = type? rules [
+			; Split input
+			split input rules
+		][
+			; Normal parse
+			either case [
+				; Case
+				either part [
+					; Case - Part
+					either trace [
+						; Case - Part - Trace
+						parse/case/part/trace input rules length callback
+					][
+						; Case - Part - No trace
+						parse/case/part input rules length
+					]
+				][
+					; Case - No part
+					either trace [
+						; Case - No part - Trace
+						parse/case/trace input rules callback
+					][
+						; Case - No part - No trace
+						parse/case input rules
+					]
+				]	
+			][
+				; No case
+				either part [
+					; No case - Part
+					either trace [
+						; No case - Part - Trace
+						parse/part/trace input rules length callback
+					][
+						; No case - Part - No trace
+						parse/part input rules length
+					]
+				][
+					; No case - No part
+					either trace [
+						; No case - No part - Trace
+						parse/trace input rules callback
+					][
+						; No case - No part - No trace
+						parse input rules
+					]
+				]		
+			]
+		]
+	]
+
+	;--------------------------
+	;-     	remove-each()
+	;
+	;--------------------------
+	remove-each: funcl [
+		'word	[word! block!]	"Word or block of words to set each time."
+		data	[series!]		"The series to traverse (modified)."
+		body	[block!]		"Block to evaluate (return TRUE to remove)."
+	][
+		remove-each word data body
+		data
+	]
+
+	;--------------------------
+	;-     	funct()
+	;
+	;--------------------------
+	funct: :function ; <TODO>
+]
+
 vdump-hash: make hash! []
 
 ;-                                                                                                         .
@@ -757,7 +862,7 @@ if value? 'open [
 ;-----------------------------------------------------------------
 SLiM: context [
 	;--------------------------
-	;-     linked-slim-version:
+	;-      linked-slim-version:
 	;
 	; when slim-linked, this is the version of the original slim library used.
 	;
@@ -765,16 +870,22 @@ SLiM: context [
 	;--------------------------
 	linked-slim-version: none
 	
-	
 	;--------------------------
-	;-     id:
+	;-      id:
+	;
 	; this holds the next serial number assigned to a library (not used, deprecate?)
 	;--------------------------
 	id: 1
 	
-	
 	;--------------------------
-	;-     default-lib-extensions:
+	;-     	path:
+	;
+	; v1.2.2 declared, so that the 'PATH word remains local to slim.
+	;--------------------------
+	path: none 
+
+	;--------------------------
+	;-      default-lib-extensions:
 	;
 	; setup the expected library extension for use by the current setup.
 	; changing it manually allows you to use a custom file extension of your choice.
@@ -782,36 +893,35 @@ SLiM: context [
 	; when using slim/open you can supply an extension manually, allowing for per-application modules (plugin?) control.
 	;--------------------------
 	default-lib-extensions: [".slred" ".red" ".slr2"]
-
-
+	
+	;--------------------------
+	;-      application-path:
+	;
+	;--------------------------
+	application-path: none
+	
 	;--------------------------
 	;-     slim-path:
 	;
-	;  path of the slim manager
+	;  path of the slim manager itself (directory up to %slim.r)
 	;--------------------------
-	slim-path: clean-path what-dir
-	
-;	;-----
-;	; is slim's folder under a /libs parent folder?
-;	if "libs" = first back back tail slim-path-parts: parse slim-path "/" [
-;		;---
-;		; We end up here when slim is somewhere like: 
-;		;		%/disk/dev/projects/library-repository/libs/slim/slim.r
-;		;                                             ^^^^^^
-;		;
-;		; This allows us to make slim a repository without any submodules, 
-;		; Its much easier to mix and match slim with library packages this way.
-;		;---
-;		slim-path: dirize to-file head clear back tail slim-path-parts
-;	]
-	
-	; <SMC> Rebol parse string has the same behavior as split
-	;if "slim" = first back tail slim-path-parts: parse slim-path "/" [
-	if "slim" = first back tail slim-path-parts: split slim-path "/" [
-		if empty? last slim-path-parts [remove back tail slim-path-parts]
-		slim-path: dirize to-file head clear back tail slim-path-parts
+	slim-path-parts: split (clean-path what-dir) #"/" 
+	if empty? last slim-path-parts [ 
+		take/last slim-path-parts
 	]
+	slim-path: to-file merge/only (copy slim-path-parts) "/"
 	
+	;--------------------------
+	;-     slim-package-root:
+	;
+	; we assume libs will never been in the Root of a disk
+	; 
+	; we expect slim.r to be within a directory called /slim/
+	;--------------------------
+	if %slim = last slim-path-parts [
+		take/last slim-path-parts 
+		slim-package-root: to-file merge/only (copy slim-path-parts) "/"
+	]
 	
 	;--------------------------
 	;-     slim-packages:
@@ -822,26 +932,19 @@ SLiM: context [
 	;
 	; path discovery is *not* re-attempted later.
 	;--------------------------
-	path: none ; v1.2.2 declared, so that the 'PATH word remains local to slim.
-	; Only keep sub-directories
-	; <SMC> In Red, 'remove-each returns unset
-;	slim-packages: remove-each path read slim-path [
-;		#"/" <> last path
-;	]
-	slim-packages: read slim-path
+	slim-packages: read slim-package-root
 	remove-each path slim-packages [
 		#"/" <> last path
 	]
-	
 	until [
 		if path: pick slim-packages 1 [
-			;change slim-packages join slim-path path <SMC> To Red
-			change slim-packages rejoin [slim-path path]
+			;change slim-packages join slim-package-root path <SMC> To Red
+			change slim-packages rejoin [slim-package-root path]
 		]
 		empty? slim-packages: next slim-packages
 	]
 	slim-packages: head slim-packages
-	
+	new-line/all slim-packages true
 	
 	;----------------
 	;-     libs
@@ -851,7 +954,6 @@ SLiM: context [
 	; each time a library is opened, its name and object pointer get dumped here.
 	; this allows us to share the same object for all calls
 	libs: []
-
 
 	;----------------
 	;-     paths
@@ -872,21 +974,18 @@ SLiM: context [
 	; otherwise it will only do libs directly from the link-cache variable instead.
 	linked-libs: none
 
-
 	;----------------
 	;-     open-version
 	open-version: 0.0.0     ; use this to store the version of currently opening module. is used by validate, afterwards.
 
-
 	;--------------------------
 	;-     opening-lib-name:
+	;
 	; we try to store the library name which is attempting to load...
 	;
 	; the goal is to be able to re-use it within SLIM-ERROR()
 	;--------------------------
 	opening-lib-name: none
-	
-
 
 	;--------------------------
 	;-     quiet?:
@@ -895,7 +994,6 @@ SLiM: context [
 	;--------------------------
 	quiet?: false
 	
-	
 	;--------------------------
 	;-     manager-version:
 	;
@@ -903,11 +1001,7 @@ SLiM: context [
 	;
 	; it will switch between the linked or run-time value, based on strartup.
 	;--------------------------
-	; <SMC> Header loading is not yet supported in Red, so I load the file and
-	;	and manually get the wanted field
-	system/script/header: context second load %slim.red
-
-	manager-version: any [ linked-slim-version  system/script/header/version]
+	manager-version: any [ linked-slim-version  slim-header/version]
 	
 
 
@@ -1087,7 +1181,7 @@ SLiM: context [
 			none! []
 		][append line mold reduce data]
 		
-		if in [insert tabs "^-"]
+		if in [insert tabs "    "]
 		
 		;line: replace/all line "^/" join "^/" tabs <SMC> To Red
 		line: replace/all line "^/" rejoin ["^/" tabs]
@@ -1447,7 +1541,10 @@ SLiM: context [
 			block! [
 				blk: reduce :name
 				rval: last blk
-				rejoin [mold/only :name " : "  mold/all/only :blk]
+				tmp: rejoin [mold/only :name " : "  mold/all/only :blk]
+				write/append %/s/test.red  "^/-------^/^/"
+				write/append %/s/test.red tmp
+				tmp
 			]
 		][
 			rejoin [ "" tp " : " mold/all rval: :name ]
@@ -2561,7 +2658,6 @@ any library pointing to the old version still points to it.
 		;return lib
 	]
 
-
 	;----------------
 	;-    list
 	;----
@@ -2576,8 +2672,6 @@ any library pointing to the old version still points to it.
 		libs
 	]
 
-
-
 	;----------------
 	;-    abspath()
 	;----
@@ -2590,19 +2684,31 @@ any library pointing to the old version still points to it.
 
 	;-----------------
 	;-    application-path()
+	;
+	; notes:  this is a self-modifying function, which will replace itself with a static file! path.
 	;-----------------
-	application-path: funcl [
-	][
-		parent: system/script
-		until [
-			script: parent
-			parent: script/parent
-			any [
-				none? parent
-				none? parent/header
-			]
-		]
-		get in script 'path
+	application-path: funcl [/extern application-path][
+		vin "application-path()"
+;		
+;		vprobe what-dir
+;		
+;		vprobe words-of system/script
+;		help system/script
+;		vprobe words-of system/script/parent
+;		
+;		parent: system/script
+;		until [
+;			script: parent
+;			parent: script/parent
+;			any [
+;				none? parent
+;			;	none? parent/header
+;			]
+;		]
+		vout
+;		get in script 'path
+		
+		application-path: what-dir
 	]  
 	
 	
@@ -2613,7 +2719,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   a list of folders to search (in order)
 	;
-	; notes:    
+	; notes:    these paths take precedence over internal paths.
 	;
 	; tests:    
 	;--------------------------
@@ -2622,8 +2728,8 @@ any library pointing to the old version still points to it.
 	][
 		vin "add-path()"
 		dirs: compose [(dir)]
-		foreach dir dirs [
-			append paths clean-path dir
+		foreach dir reverse copy dirs [
+			insert paths clean-path dir
 		]
 		vout
 	]
@@ -2648,54 +2754,18 @@ any library pointing to the old version still points to it.
 		"Dynamically builds the list of paths currently accessible by slim"
 	][
 		vin "search-paths()"
-		
-		;-----
-		; useful setup which allows slim-relative configuration setup file. (idea and first example provided by Robert M. Muench)
-		;
-		; notes: -There is no error checking, we assume the config is valid. 
-		;        -setup can be protected using normal disk security.
-		;-----
-;		disk-paths: either (exists? p: rejoin [slim-path %slim-paths default-lib-extensions]) [
-;			reduce load p
-;		][
-;			[]
-;		]
-		; <SMC> New code to support multiple default-extensions
-		foreach ext default-lib-extensions [
-			p: rejoin [slim-path %slim-paths ext]
-			if exists? p [
-				disk-paths: reduce load p
-				break ; If found, stop trying extensions
-			]
-		]
-		
 		;----
 		; ordering of library search:
 		;----
-		;paths: copy []
-		;foreach path reduce [
-		
+		app-path: application-path
 		paths: compose [
-			;what-dir                ; 1) current directory
-			;(join what-dir %libs/)  ; 2) libs subdir within current directory
-			(self/paths)              ; 3) manual search path setup
-			(disk-paths)              ; 4) a disk setup file
-			(self/slim-packages)      ; 5) list of subdirs in slim path
-			(self/slim-path)          ; 6) where slim is loaded from
+			(copy app-path)				; 1) current directory
+			(rejoin [app-path %libs/])	; 2) libs subdir within current directory
+			(self/paths)				; 3) manual search path setup
+			(self/slim-packages)		; 4) list of subdirs in slim path
 		]
-		;][  
-		;	append paths path 
-		;]
-		
-		if app-path: application-path [
-			;insert paths join app-path %libs/
-			insert paths rejoin [app-path %libs/]
-			insert paths copy app-path
-		]
-		
-
 		new-line/all paths true
-
+		vprobe paths
 		vout
 		paths
 	]
@@ -2711,7 +2781,7 @@ any library pointing to the old version still points to it.
 	find-path: funcl [
 		file	[file!]
 		/lib
-		/
+		;/
 		;/local path item paths disk-paths p
 	][
 		vin ["SLiM/find-path(" file ")"]
