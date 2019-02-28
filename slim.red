@@ -388,7 +388,6 @@ merge: function [
 ]
 
 
-
 ;--------------------------
 ;-     extract-set-words()
 ;--------------------------
@@ -440,8 +439,6 @@ extract-set-words: func [
 	;vout
 	words
 ]
-
-
 
 
 ;--------------------------
@@ -701,8 +698,6 @@ flag-enum: funcl [
 	ctx
 ]
 
-
-
 	
 ;--------------------------
 ;-     platform-name()
@@ -739,7 +734,6 @@ to-error: funcl [
 ][
 	make error! msg
 ]
-
 
 
 ;-                                                                                                       .
@@ -1027,15 +1021,6 @@ SLiM: context [
 	;- FUNCTIONS
 	;-------------------------------
 	
-
-	
-	;----------------
-	;-    init-output()
-	;----
-	;init-output: func [new-print new-prin] [
-	;   print: :new-print
-	;   prin: :new-prin
-	;]
 	
 	;----------------
 	;-    match-tags()
@@ -1078,8 +1063,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
 	;----------------
 	;-    vlog()
 	;
@@ -1094,8 +1077,6 @@ SLiM: context [
 	][
 		vlogfile: path
 	]
-	
-	
 	
 	
 	;----------------
@@ -1157,9 +1138,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
-	
 	;----------------
 	;-    indented-print()
 	;----
@@ -1194,7 +1172,6 @@ SLiM: context [
 			]
 		]
 	]
-	
 	
 	
 	;----------------
@@ -1239,12 +1216,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
-	
-	
-	
-	
 	;----------------
 	;-    voff()
 	;----
@@ -1264,7 +1235,6 @@ SLiM: context [
 			if block? vtags [clear vtags]
 		]
 	]
-	
 	
 	
 	;----------------
@@ -1289,7 +1259,6 @@ SLiM: context [
 	]
 
 	
-	
 	;----------------
 	;-    vlog-off()
 	;----
@@ -1299,7 +1268,6 @@ SLiM: context [
 	]
 	
 	
-	
 	;----------------
 	;-    vlog-on()
 	;----
@@ -1307,7 +1275,6 @@ SLiM: context [
 		vlogging?: on
 		if block? log-ntags [clear log-ntags]
 	]
-	
 	
 	
 	;----------------
@@ -1338,7 +1305,6 @@ SLiM: context [
 	]   
 	
 	
-	
 	;----------------
 	;-    vindent()
 	; simply prins the leading indents 
@@ -1354,7 +1320,6 @@ SLiM: context [
 			indented-prin/log to-string ltabs in out
 		]
 	]
-	
 	
 	
 	;----------------
@@ -1376,8 +1341,6 @@ SLiM: context [
 			indented-print/log rejoin [txt " ["] yes no 
 		]
 	]
-	
-	
 	
 	
 	;----------------
@@ -1405,9 +1368,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
-	
 	;----------------
 	;-    vprint()
 	;----
@@ -1427,7 +1387,6 @@ SLiM: context [
 			indented-print/log data in out
 		]
 	]
-	
 	
 	
 	;----------------
@@ -1514,9 +1473,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
-	
 	;----------------
 	;-    v??()
 	;----
@@ -1551,7 +1507,6 @@ SLiM: context [
 			
 		:rval
 	]
-	
 		
 	
 	;----------------
@@ -1887,7 +1842,6 @@ SLiM: context [
 	]
 	
 	
-	
 	;----------------
 	;-    vlog-reset()
 	;----
@@ -1904,10 +1858,6 @@ SLiM: context [
 			write vlogfile ""
 		]
 	]
-	
-	
-	
-	
 	
 	
 	;----------------
@@ -1928,8 +1878,6 @@ SLiM: context [
 			clear head vconsole
 		]
 	]
-	
-	
 	
 
 	;----------------
@@ -1966,10 +1914,6 @@ SLiM: context [
 		set in system/words 'vlog-off :vlog-off
 		set in system/words 'vlog-reset :vlog-reset
 	]
-
-
-
-
 
 
 	;----------------
@@ -2168,7 +2112,6 @@ SLiM: context [
 		first reduce [ lib lib: none ]
 	]
 
-
 	
 	;----------------
 	;-    flush()
@@ -2198,8 +2141,6 @@ SLiM: context [
 	]
 	
 	
-	
-	
 	;--------------------------
 	;-    silence-lib()
 	;--------------------------
@@ -2222,7 +2163,6 @@ SLiM: context [
 	]
 	
 	
-	
 	;--------------------------
 	;-    silence-all()
 	;--------------------------
@@ -2239,8 +2179,6 @@ SLiM: context [
 		]
 		vout
 	]
-	
-	
 	
 	
 	;----------------
@@ -2516,7 +2454,6 @@ SLiM: context [
 	]
 	
 	
-	
 	;--------------------------
 	;-    slim-error()
 	;--------------------------
@@ -2551,7 +2488,6 @@ SLiM: context [
 	]
 	
 	
-	
 	;----------------
 	;-    lib?()
 	;----
@@ -2578,7 +2514,6 @@ SLiM: context [
 			]
 		]
 	]
-	
 	
 	
 	;----------------
@@ -2622,8 +2557,6 @@ any library pointing to the old version still points to it.
 	]
 
 
-
-
 	;----------------
 	;-    cached?
 	;----
@@ -2650,6 +2583,7 @@ any library pointing to the old version still points to it.
 		;return lib
 	]
 
+
 	;----------------
 	;-    list
 	;----
@@ -2663,6 +2597,7 @@ any library pointing to the old version still points to it.
 		]
 		libs
 	]
+
 
 	;----------------
 	;-    abspath()
@@ -2724,7 +2659,6 @@ any library pointing to the old version still points to it.
 		vout
 	]
 	
-
 	
 	;--------------------------
 	;-    search-paths()
@@ -2760,8 +2694,6 @@ any library pointing to the old version still points to it.
 		paths
 	]
 	
-
-
 
 	;----------------
 	;-    find-path()
@@ -2804,9 +2736,6 @@ any library pointing to the old version still points to it.
 		vout
 		return filepath
 	]
-	
-
-	
 	
 	
 	;----------------
@@ -2900,7 +2829,6 @@ any library pointing to the old version still points to it.
 	]
 	
 	
-	
 	;-------------------
 	;-    as-tuple()
 	;-------------------
@@ -2942,7 +2870,6 @@ any library pointing to the old version still points to it.
 		]
 		value
 	]
-
 	
 	
 	;----------------
@@ -2967,7 +2894,6 @@ any library pointing to the old version still points to it.
 	]
 
 
-	
 	;--------------------------
 	;-    build-expose-list()
 	;--------------------------
@@ -3070,7 +2996,6 @@ any library pointing to the old version still points to it.
 		
 		list
 	]
-	
 
 
 	;----------------
@@ -3174,8 +3099,6 @@ any library pointing to the old version still points to it.
 		]
 		vprint/out "]"
 	]
-	
-	
 	
 	
 	;;----------------
