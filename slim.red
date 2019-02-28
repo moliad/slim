@@ -1181,13 +1181,10 @@ SLiM: context [
 			none! []
 		][append line mold reduce data]
 		
-		if in [insert tabs "    "]
-		
-		;line: replace/all line "^/" join "^/" tabs <SMC> To Red
-		line: replace/all line "^/" rejoin ["^/" tabs]
+		if in [ insert tabs "    " ]
+		line: replace/all line "^/" rejoin [ "^/" rejoin tabs ]
 		
 		either log [
-			;write/append vlogfile join line "^/" ; <SMC> To Red
 			write/append vlogfile rejoin [line "^/"] ; we must add the trailing new-line
 		][
 			either vconsole [
@@ -1209,7 +1206,6 @@ SLiM: context [
 		/in
 		/local line do tabs
 	][
-	
 		tabs: either log [ltabs][vtabs]
 		line: copy ""
 		switch/default (type?/word data) [
@@ -1220,16 +1216,16 @@ SLiM: context [
 			none! []
 		][append line mold reduce data]
 		
-		;line: replace/all line "^/" join "^/" tabs <SMC> To Red
-		line: replace/all line "^/" rejoin ["^/" tabs]
 		
+		;line: replace/all line "^/" join "^/" tabs <SMC> To Red
+		line: replace/all line "^/" rejoin [ "^/" rejoin tabs ]
 	;   either vconsole [
 	;       append/only vconsole replace/all line "^/" join "^/" tabs 
 	;   ][
 	;       prin replace/all line "^/" join "^/" tabs 
 	;   ]
 	
-		if in [ insert tabs "^-" ]
+		if in [ insert tabs "    " ]
 		
 		either log [
 			write/append vlogfile line
@@ -1240,7 +1236,6 @@ SLiM: context [
 				prin line
 			]
 		]
-		
 	]
 	
 	
@@ -1541,10 +1536,7 @@ SLiM: context [
 			block! [
 				blk: reduce :name
 				rval: last blk
-				tmp: rejoin [mold/only :name " : "  mold/all/only :blk]
-				write/append %/s/test.red  "^/-------^/^/"
-				write/append %/s/test.red tmp
-				tmp
+				rejoin [mold/only :name " : "  mold/all/only :blk]
 			]
 		][
 			rejoin [ "" tp " : " mold/all rval: :name ]
@@ -2689,9 +2681,7 @@ any library pointing to the old version still points to it.
 	;-----------------
 	application-path: funcl [/extern application-path][
 		vin "application-path()"
-;		
 ;		vprobe what-dir
-;		
 ;		vprobe words-of system/script
 ;		help system/script
 ;		vprobe words-of system/script/parent
@@ -2709,7 +2699,7 @@ any library pointing to the old version still points to it.
 ;		get in script 'path
 		
 		application-path: what-dir
-	]  
+	]
 	
 	
 	;--------------------------
@@ -2765,7 +2755,7 @@ any library pointing to the old version still points to it.
 			(self/slim-packages)		; 4) list of subdirs in slim path
 		]
 		new-line/all paths true
-		vprobe paths
+		v?? paths
 		vout
 		paths
 	]
