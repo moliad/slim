@@ -717,13 +717,22 @@ flag-enum: funcl [
 ;       LINUX []
 ;   ]
 ;--------------------------
+;platform-name: does [
+;	select [
+;		1 AMIGA
+;		2 OSX
+;		3 WIN32
+;		4 LINUX ; (32 bits)
+;	] system/version/4 
+;]
+
 platform-name: does [
 	select [
-		1 AMIGA
-		2 OSX
-		3 WIN32
-		4 LINUX ; (32 bits)
-	] system/version/4 
+		'Windows	WIN32
+		;'Syllable
+		'MacOS		OSX
+		'Linux		LINUX
+	] system/platform
 ]
 
 ;--------------------------
@@ -761,55 +770,124 @@ r2-backwards-ctx: context [
 		/trace	callback	[function!]
 		/all	"In Red, parse/all = parse => ignore refinement"
 	][
-		either string! = type? rules [
-			; Split input
-			split input rules
-		][
-			; Normal parse
-			either case [
-				; Case
-				either part [
-					; Case - Part
-					either trace [
-						; Case - Part - Trace
-						parse/case/part/trace input rules length callback
-					][
-						; Case - Part - No trace
-						parse/case/part input rules length
+		any [
+			all [
+				string! = type? rules
+				split input rules
+			]
+			any [
+				; case
+				all [
+					case
+					any [
+						; part
+						all [
+							part
+							any [
+								; trace
+								all [
+									trace
+									; Case - Part - Trace
+									parse/case/part/trace input rules length callback
+								]
+								; Case - Part - No trace
+								parse/case/part input rules length
+							]
+						]
+						; no part
+						any [
+							; trace
+							all [
+								trace
+								; Case - No part - Trace
+								parse/case/trace input rules callback
+							]
+							; Case - No part - No trace
+							parse/case input rules
+						]
 					]
-				][
-					; Case - No part
-					either trace [
-						; Case - No part - Trace
-						parse/case/trace input rules callback
-					][
-						; Case - No part - No trace
-						parse/case input rules
+				]
+				; no case
+				any [
+					; part
+					all [
+						part
+						any [
+							; trace
+							all [
+								trace
+								; No case - Part - Trace
+								parse/part/trace input rules length callback
+							]
+							; No case - Part - No trace
+							parse/part input rules length
+						]
 					]
-				]	
-			][
-				; No case
-				either part [
-					; No case - Part
-					either trace [
-						; No case - Part - Trace
-						parse/part/trace input rules length callback
-					][
-						; No case - Part - No trace
-						parse/part input rules length
-					]
-				][
-					; No case - No part
-					either trace [
-						; No case - No part - Trace
-						parse/trace input rules callback
-					][
+					; no part
+					any [
+						; trace
+						all [
+							trace
+							; No case - No part - Trace
+							parse/trace input rules callback
+						]
 						; No case - No part - No trace
 						parse input rules
 					]
-				]		
+				]
 			]
 		]
+		
+		; -------------------------------------------
+;		either string! = type? rules [
+;			; Split input
+;			split input rules
+;		][
+;			; Normal parse
+;			either case [
+;				; Case
+;				either part [
+;					; Case - Part
+;					either trace [
+;						; Case - Part - Trace
+;						parse/case/part/trace input rules length callback
+;					][
+;						; Case - Part - No trace
+;						parse/case/part input rules length
+;					]
+;				][
+;					; Case - No part
+;					either trace [
+;						; Case - No part - Trace
+;						parse/case/trace input rules callback
+;					][
+;						; Case - No part - No trace
+;						parse/case input rules
+;					]
+;				]	
+;			][
+;				; No case
+;				either part [
+;					; No case - Part
+;					either trace [
+;						; No case - Part - Trace
+;						parse/part/trace input rules length callback
+;					][
+;						; No case - Part - No trace
+;						parse/part input rules length
+;					]
+;				][
+;					; No case - No part
+;					either trace [
+;						; No case - No part - Trace
+;						parse/trace input rules callback
+;					][
+;						; No case - No part - No trace
+;						parse input rules
+;					]
+;				]		
+;			]
+;		]
 	]
 
 	;--------------------------
