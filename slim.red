@@ -298,18 +298,36 @@ slim-debugger: context [
 ]
 
 
+
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
 ;
-;- GLOBAL STUFF
+;- GLOBALS
+;
+;-----------------------------------------------------------------------------------------------------------
+;--------------------------
+;-     vdump-hash:
+;
+;--------------------------
+vdump-hash: make hash! []
+
+
+
+
+
+
+
+
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- GLOBAL CONTEXT FUNCTIONS
 ;
 ;-----------------------------------------------------------------------------------------------------------
 ;--------------------------
 ;-     funcl()
 ;--------------------------
 funcl: :function
-
-
 
 ;--------------------------
 ;-     as-tuple()
@@ -777,14 +795,47 @@ platform-name: does [
 	] system/platform
 ]
 
+
+
+
+
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- REBOL GLOBAL CTX MEZZANINES
+;
+;-----------------------------------------------------------------------------------------------------------
+
+;--------------------------
+;-     join()
+;--------------------------
+unless value? 'join [
+	; return a COPY of path + filename
+	;----
+	join: func [
+	    "Concatenates values."
+	    value "Base value"
+	    rest "Value or block of values"
+	][
+	    value: either series? :value [copy value] [form :value]
+	    repend value :rest
+	]
+]
+
+
 ;--------------------------
 ;-     to-error()
 ;--------------------------
-to-error: funcl [
-	msg [string! block!]
-][
-	make error! msg
+unless value? 'to-error [
+	to-error: funcl [
+		msg [string! block!]
+	][
+		make error! msg
+	]
 ]
+
+
+
 
 
 ;-                                                                                                       .
@@ -848,7 +899,6 @@ r2-backwards-ctx: context [
 	funct: :function ; <TODO>
 ]
 
-vdump-hash: make hash! []
 
 ;-                                                                                                         .
 ;-----------------------------------------------------------------------------------------------------------
@@ -903,6 +953,16 @@ SLiM: context [
 	; when using slim/open you can supply an extension manually, allowing for per-application modules (plugin?) control.
 	;--------------------------
 	default-lib-extensions: [".slred" ".red" ".slr2"]
+	
+	;--------------------------
+	;-     library-index:
+	;
+	; in - memory version of all accumulated package catalogues.
+	;
+	; will also usually include a run-time generated index of packages
+	; without an explicit catalogue file (like the applicatio/libs/ path).
+	;--------------------------
+	library-index: none
 	
 	;--------------------------
 	;-      application-path:
@@ -1019,10 +1079,8 @@ SLiM: context [
 	;--------------------------
 	manager-version: any [ linked-slim-version  slim-header/version]
 	
-
-
 	;-------------------------------
-	;-     VPRINTING VALUES
+	;-     vprinting 
 	;-------------------------------
 	verbose:    false   ; display console messages
 	vlogging?:  false   ; display messages in log file.
@@ -1040,7 +1098,7 @@ SLiM: context [
 	
 
 	;-------------------------------
-	;- FUNCTIONS
+	;- VPRINT FUNCTIONS
 	;-------------------------------
 	
 	
@@ -2006,12 +2064,15 @@ SLiM: context [
 				verstr: to-string version
 				switch version/1 [
 					#"=" [
+						version: as-tuple next version
 						'exact
 					]
 					#"-" [
+						version: as-tuple next version
 						'at-most
 					]
 					#"+" [
+						version: as-tuple next version
 						'at-least
 					]
 				][
@@ -2024,6 +2085,7 @@ SLiM: context [
 				float? version
 				tuple? version
 			]) [
+				version: as-tuple version
 				'at-least-capped
 			]
 			
@@ -2272,10 +2334,7 @@ SLiM: context [
 		/unsafe "use this to prevent the collection of all words in order to make them local.  This should be a temporary measure for backwards compatibility, if the new version breaks old libs." 
 		/local lib-spec pre-io post-io block -*&*_&_*&*- success words item item-str expose-block? list lib
 	][
-		
 		vprint/in ["SLiM/REGISTER() ["]
-		
-		
 		
 		;--------------------------------------------------
 		; these are the words which will be added to any slim module
@@ -2289,7 +2348,6 @@ SLiM: context [
 		; like the verbose flag will be local to the module.
 		;--------------------------------------------------
 		slim-localized-funcs: [ von voff vprint vprin vindent vprobe vin vout v?? vhelp vdump vask print? log? vlog-on vlog-off]
-		
 		
 		; temporarily set '-*&*_&_*&*- to self it is later set to the new library
 		-*&*_&_*&*-: self
@@ -2366,19 +2424,15 @@ SLiM: context [
 			
 			words: unique words
 			
-			
 			insert lib-spec #[none]
 			insert lib-spec words
-			
-			
-			
 		]
 		
 		
 		
 		;--------------
 		; make sure library meets all requirements
-		either self/validate-lib-header(hdrblk) [
+		either self/validate-lib-header (hdrblk) [  
 			;--------------
 			; compile library specification
 			
@@ -2760,30 +2814,6 @@ any library pointing to the old version still points to it.
 
 
 
-	;----------------
-	;-    list
-	;----
-	; find the pointer to an already opened library object 
-	;  a return of none, means that a library of that name was not yet registered...
-	;----
-	list: has [lib libs libctx][
-		libs: copy []
-		foreach [lib libctx] self/libs [
-			append libs lib
-		]
-		libs
-	]
-
-
-	;----------------
-	;-    abspath()
-	;----
-	; return a COPY of path + filename
-	;----
-	abspath: func [path file][
-		append copy path file
-	]
-
 
 	;-----------------
 	;-    application-path()
@@ -2889,7 +2919,7 @@ any library pointing to the old version still points to it.
 		foreach path paths [
 			vprint path
 			if file? path [
-				filepath: abspath path file
+				filepath: join path file
 				either exists? filepath [
 					either lib [
 						data: load/header/all lib-file
@@ -3279,6 +3309,158 @@ any library pointing to the old version still points to it.
 		]
 		vprint/out "]"
 	]
+	
+	
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;-     CATALOG MANAGEMENT
+	;
+	;-----------------------------------------------------------------------------------------------------------
+	;--------------------------
+	;-         update-index()
+	;--------------------------
+	; purpose:  using all search-paths() read every catalogue file
+	;            you find and add them into the in-memory index
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	update-index: funcl [
+	][
+		vin "update-index()"
+		
+		vout
+	]
+	
+	;--------------------------
+	;-         update-catalog()
+	;--------------------------
+	; purpose:  updates the disk catalogue file for a package folder
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    will update catalog file on disk.
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	update-catalog: funcl [
+		dir [file!] "A disk directory (usually a package from search-paths() )"
+	][
+		vin "update-catalog()"
+	
+		vout
+	]
+	
+	
+	;--------------------------
+	;-         build-catalog()
+	;--------------------------
+	; purpose:  creates a catalog dataset given a package directory
+	;
+	; inputs:   
+	;
+	; returns:  a catalog dataset
+	;
+	; notes:    does not WRITE any thing to disk.
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	build-catalog: funcl [
+		dir [file!]
+	][
+		vin "build-catalog()"
+	
+		vout
+	]
+	
+	;--------------------------
+	;-         get-catalog()
+	;--------------------------
+	; purpose:  returns a catalog for a given package
+	;
+	; inputs:   
+	;
+	; returns:  catalogue format data
+	;
+	; notes:    - there may be no physical catalog on disk!
+	;             in such a case we read all files and generate one run-time.
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	get-catalog: funcl [
+		file [file!] "open a catalogue file, given an ABSOLUTE path"
+	][
+		vin "get-catalog()"
+	
+		vout
+	]
+	
+	;--------------------------
+	;-         index-catalog()
+	;--------------------------
+	; purpose:  adds a catalog file to in-memory index
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	index-catalog: funcl [
+		catalog [block!]
+	][
+		vin "index-catalog()"
+		
+		vout
+	]
+
+
+	;--------------------------
+	;-         find-indexed-path()
+	;--------------------------
+	; purpose:  searches the memory index for a versioned library.
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	find-indexed-path: funcl [
+		lib-name [word]
+		version [tuple!]
+		mode [word!]
+	][
+		vin "find-indexed-path()"
+		
+		vout
+	]
+		
+	
 	
 	
 	;;----------------
