@@ -52,7 +52,7 @@ REBOL [
 
 
 ;--------------------------------------
-; unit testing setup (using slut.r)
+; unit testing setup (using slim-template.r)
 ;--------------------------------------
 ;
 ; test-enter-slim 'slim-template

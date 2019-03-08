@@ -310,6 +310,48 @@ slim-debugger: context [
 funcl: :function
 
 
+
+;--------------------------
+;-     as-tuple()
+;--------------------------
+; purpose:  convert some obvious types to tuple!
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    we do no sanity checks on input to prove if the value is within range of tuple (0-256) or a valid string
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+as-tuple: funcl [
+	val [integer! float! string! tuple!]
+][
+	vin "as-tuple()"
+	tuple: switch type?/word val [
+		integer! [
+			make tuple reduce [ val 0 0 ]
+		]
+		float! [
+			make tuple! reduce [
+				to-integer val
+				to-integer next next to-string (modulo val 1.0)  
+				0
+			]
+		]
+		tuple! [
+			val
+		]
+		string! [
+			to-tuple string!
+		]
+	]
+	vout
+	tuple
+]
+
 ;--------------------
 ;-     merge()
 ;
@@ -770,124 +812,20 @@ r2-backwards-ctx: context [
 		/trace	callback	[function!]
 		/all	"In Red, parse/all = parse => ignore refinement"
 	][
-		any [
-			all [
-				string! = type? rules
-				split input rules
-			]
-			any [
-				; case
-				all [
-					case
-					any [
-						; part
-						all [
-							part
-							any [
-								; trace
-								all [
-									trace
-									; Case - Part - Trace
-									parse/case/part/trace input rules length callback
-								]
-								; Case - Part - No trace
-								parse/case/part input rules length
-							]
-						]
-						; no part
-						any [
-							; trace
-							all [
-								trace
-								; Case - No part - Trace
-								parse/case/trace input rules callback
-							]
-							; Case - No part - No trace
-							parse/case input rules
-						]
-					]
-				]
-				; no case
-				any [
-					; part
-					all [
-						part
-						any [
-							; trace
-							all [
-								trace
-								; No case - Part - Trace
-								parse/part/trace input rules length callback
-							]
-							; No case - Part - No trace
-							parse/part input rules length
-						]
-					]
-					; no part
-					any [
-						; trace
-						all [
-							trace
-							; No case - No part - Trace
-							parse/trace input rules callback
-						]
-						; No case - No part - No trace
-						parse input rules
-					]
-				]
-			]
+		val: case [
+			all [string? rules ]	[split input rules ]
+			all [ case part trace ]	[parse/case/part/trace input rules length callback ]
+			all [ case part ]		[parse/case/part input rules length ]
+			all [ case trace ]		[parse/case/trace input rules callback ]
+			all [ trace part ]		[parse/part/trace input rules length callback ]
+			all [ part ]			[parse/part input rules length ]
+			all [ trace ]			[parse/trace input rules callback ]
+			all [ case ]			[parse/case input rules ]
+			
+			; no refinements!
+			parse input rules
 		]
-		
-		; -------------------------------------------
-;		either string! = type? rules [
-;			; Split input
-;			split input rules
-;		][
-;			; Normal parse
-;			either case [
-;				; Case
-;				either part [
-;					; Case - Part
-;					either trace [
-;						; Case - Part - Trace
-;						parse/case/part/trace input rules length callback
-;					][
-;						; Case - Part - No trace
-;						parse/case/part input rules length
-;					]
-;				][
-;					; Case - No part
-;					either trace [
-;						; Case - No part - Trace
-;						parse/case/trace input rules callback
-;					][
-;						; Case - No part - No trace
-;						parse/case input rules
-;					]
-;				]	
-;			][
-;				; No case
-;				either part [
-;					; No case - Part
-;					either trace [
-;						; No case - Part - Trace
-;						parse/part/trace input rules length callback
-;					][
-;						; No case - Part - No trace
-;						parse/part input rules length
-;					]
-;				][
-;					; No case - No part
-;					either trace [
-;						; No case - No part - Trace
-;						parse/trace input rules callback
-;					][
-;						; No case - No part - No trace
-;						parse input rules
-;					]
-;				]		
-;			]
-;		]
+		val
 	]
 
 	;--------------------------
@@ -1025,7 +963,13 @@ SLiM: context [
 	;
 	; each time a library is opened, its name and object pointer get dumped here.
 	; this allows us to share the same object for all calls
-	libs: []
+	;
+	; changes:
+	;     v2.0.0 - converted to hash! to improve lookup speed
+	;            - format now supports multiple lib versions in memory. e.g. [ libname [version1 lib-ctx1   version2 lib-ctx2 ... ] ... ]
+	;            - lib versions are stored highest to lowest so we always find the highest matching lib possible.
+	;----------------
+	libs: make hash! []
 
 	;----------------
 	;-     paths
@@ -2000,11 +1944,12 @@ SLiM: context [
 	OPEN: funcl [
 		"Open a library module.  If it is already loaded from disk, then it returns the memory cached version instead."
 		lib-name [word! string! file!] "The name of the library module you wish to open.  This is the name of the file on disk.  Also, the name in its header, must match. when using a direct file type, lib name is irrelevant, but version must still be qualified."
-		version [integer! float! none! tuple! word!] "minimal version of the library which you need, all versions should be backwards compatible."
+		version [integer! float! tuple! none! word!] "minimal version of the library which you need, all versions should be backwards compatible."
 		/within path [file!] "supply an explicit paths dir to use.  ONLY this path is used, libs, slim path and current-dir are ignored."
 		/extension ext [string! word! file!] "what extension do we expect. Overrides default-extensions. with or without dot"
 		/new "Re-load the module from disk, even if one exists in cache."
-		/expose exp-words [block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
+		/import imp-words [block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
+		/expose exp-words [block!] "DEPRECATED expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		/prefix pfx-word [word! string! none!] "use this prefix instead of the default setup in the lib as a prefix to exposed words"
 		/quiet "Don't raise error when a lib isn't found.  This is sticky, once set all further opens are also quiet.   NOTE:  THIS MUST NEVER BE USED WITHIN LIBRARIES, ONLY ROOT SCRIPTS."
 		/silent "Eradicate vprint functionality in the library (cannot be undone)"
@@ -2015,6 +1960,20 @@ SLiM: context [
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		;-----------------
 	][
+	
+		version-mode: none
+	
+		;---
+		; numbered version docs
+		;
+		; +1.0.0 must be ANY version at or beyond 1.0.0
+		; -1.0.0 must be AT or below  1.0.0
+		; =1.0.0 exactly 1.0.0 and nothing else
+		;  1.0.0 must be ANY version at or beyond 1.0.0 AND has to be the SAME major version (so anything at or beyond 2.0.0 will fail)
+		;---
+		
+		
+	
 		;--------------------------
 		; Standardize arguments:
 		;--------------------------
@@ -2042,19 +2001,52 @@ SLiM: context [
 		
 		; Futureproof interface
 		; any word you want to use for version will disable explicit version needs
-		if word? version [
-			version: none
+		version-mode:  case [
+			(word? version) [
+				verstr: to-string version
+				switch version/1 [
+					#"=" [
+						'exact
+					]
+					#"-" [
+						'at-most
+					]
+					#"+" [
+						'at-least
+					]
+				][
+					to-error rejoin ["slim/open() invalid version mode '" version/1]
+				]
+			]
+			
+			(any [
+				integer? version
+				float? version
+				tuple? version
+			]) [
+				'at-least-capped
+			]
+			
+			'default [
+				to-error rejoin ["slim/open() invalid version : " mold :version ]
+			]
 		]
+		
+		v?? version-mode
+		v?? version
 		
 		;-----
 		; Initial opening trace 
 		prev-opening-lib: self/opening-lib-name
-		vprint/in ["SLiM/Open( " uppercase to-string lib-name " " either version [ rejoin ["v" version] ][ " any version"  ]  " ) ["]
+		vprint/in ["SLiM/Open( " uppercase to-string lib-name " " either version [ rejoin [" version " version-mode  version] ][ " any version"  ]  " ) ["]
 		if new [
 			vprint "Loading a NEW INSTANCE of the library in RAM"
 		]
 		
-		either self/opening-lib-name [
+		either all [
+			quiet
+			self/opening-lib-name
+		][
 			to-error "Can not use /quiet within Slim libraries."
 		][
 			if quiet [quiet?: true]
@@ -2193,15 +2185,18 @@ SLiM: context [
 	
 	;----------------
 	;-    flush()
-	;----
+	;
 	; reset one or all loaded libs so that new calls to slim/open will reload them from disk.
 	;
 	; note that using this function without a refinement causes an error.
+	;----------------
 	FLUSH: func [
 		/all
 		/lib name [word!]
 		/local blk
 	][
+		; <TODO> update for new multi-version format of self/libs
+
 		case [
 			all [
 				libs: copy []
@@ -2247,11 +2242,16 @@ SLiM: context [
 	; purpose:  silence all loaded libraries.
 	;
 	; notes:    as above, possibly dangerous to use
+	;
+	; todo:     
 	;--------------------------
 	silence-all: funcl [][
 		vin "silence-all()"
 		lib: none
 		ctx: none
+		
+		; <TODO> update for new multi-version format of self/libs
+		
 		foreach [lib ctx] libs [
 			silence-lib ctx
 		]
@@ -2274,6 +2274,7 @@ SLiM: context [
 	][
 		
 		vprint/in ["SLiM/REGISTER() ["]
+		
 		
 		
 		;--------------------------------------------------
@@ -2607,6 +2608,9 @@ any library pointing to the old version still points to it.
 		/remove "Removes the lib from cache"
 		/local ptr
 	][
+
+		; <TODO> update for new multi-version format of self/libs
+
 		vin "slim/cache()"
 		;either lib? lib [
 			;vprobe to-string lib/header
@@ -2642,24 +2646,118 @@ any library pointing to the old version still points to it.
 	;  a return of none, means that a library of that name was not yet registered...
 	;
 	; file! type added to support file-based lib-name
+	;
+	; changes:
+	;    v2.0.0 - added version matching to allow multiple versions in memory.
+	;           - removed /list refinement, cannot find a single use in code after a decade.
+	;           - remove file! type support for lib names in all of slim
 	;----
-	cached?: func [
-		libname [word! file!] 
-		/list
-		/local lib libs libctx
+	cached?: funcl [
+		libname 	[ word! ] 
+		version		[ tuple! float! integer! string! ]
+		mode 		[ word! ]
+		;/list
+		;/version mode ver
 	][
-		either list [
-			libs: copy []
-			foreach [lib libctx] self/libs [
-				append libs lib
+		lib: none
+		vin "slim/cached?()"
+;		either list [
+;			libs: copy []
+;			foreach [lib libctx] self/libs [
+;				append libs lib
+;			]
+;			libs
+;		][
+;			lib: select self/libs libname
+;		]
+
+		if libs: select self/libs libname [
+			; we rely on Red's Foreach not re-binding loop body
+			foreach [lib-ver lib] libs [
+				if qualify-version lib-ver mode version [
+					break
+				]
 			]
-			libs
-		][
-			lib: select self/libs libname
-			;vprint [{SLiM/cached? '} uppercase to-string libname {... } either lib [ true][false]]
 		]
+		
+		v?? [object? lib]
+		
+		;vprint [{SLiM/cached? '} uppercase to-string libname {... } either lib [ true][false]]
 		;return lib
+		vout
+		lib
 	]
+
+	
+	;--------------------------
+	;-    qualify-version()
+	;--------------------------
+	; purpose:  determines if a version is a valid match given a mode and reference version to compare.
+	;
+	; inputs:   two versions and a 	qualify mode
+	;
+	; returns:  true/false
+	;
+	; notes:    uses the same modes as defined in open ()
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	qualify-version: funcl [
+		version				[ tuple! float! integer! string! ]
+		mode 				[ word! ]
+		reference-version	[ tuple! float! integer! string! ]
+	][
+		vin "qualify-version()"
+		;---
+		; modes:
+		;
+		; 'at-least
+		; +1.0.0 must be ANY version at or beyond 1.0.0
+		;
+		; 'at-most
+		; -1.0.0 must be AT or below  1.0.0
+		;
+		; 'exact
+		; =1.0.0 exactly 1.0.0 and nothing else
+		;
+		; 'at-least-capped
+		;  1.0.0 must be ANY version at or beyond 1.0.0 AND has to be the SAME major version (so anything at or beyond 2.0.0 will fail)
+		;---
+		
+		; make sure the inputs are tuples
+		version: as-tuple version
+		reference-version: as-tuple reference-version
+		
+		vprint [ ""  version " " mode " " reference-version ]
+				
+		match?: switch mode [
+			at-least [
+				version >= reference-version
+			]
+			at-most [
+				version <= reference-version
+			]
+			exact [
+				version = reference-version
+			]
+			at-least-capped [
+				all [
+					version >= reference-version
+					version/1 = reference-version/1
+					any [ 
+						reference-version/2 = 0
+						version/2 = reference-version/2
+					]
+				]
+			]
+		]
+		v?? match?
+		vout
+		match?
+	]
+
 
 
 	;----------------
@@ -2952,10 +3050,14 @@ any library pointing to the old version still points to it.
 	
 	;----------------
 	;-    version-check()
-	;----
+	;
 	; mode's last character determines validitiy of match.
+	;
+	; deprecated, replaced by qualify-version()
 	;----
-	version-check: func [supplied required mode][
+	version-check: funcl [
+		supplied required mode
+	][
 		supplied: as-tuple supplied
 		required: as-tuple required
 		
