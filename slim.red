@@ -3549,7 +3549,7 @@ any library pointing to the old version still points to it.
 	; tests:    
 	;--------------------------
 	find-indexed-path: funcl [
-		lib-name [word]
+		lib-name [word!]
 		version [tuple!]
 		mode [word!]
 	][
