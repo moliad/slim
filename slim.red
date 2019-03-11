@@ -3,7 +3,7 @@ Red [
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.red
 	version: 2.0.0
-	date: 2019-02-27
+	date: 2019-03-11
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
 	web: http://www.revault.org/tools/slim.rmrk
@@ -153,8 +153,16 @@ Red [
 		v1.3.1 - 2018-09-13
 			- added explicit header validation to make sure the slim-name is the same as the actual file name
 			
-		v2.0.0 - 2019-02-27
+		v2.0.0 - 2019-02-27 - 2019-03-11
 			- first Red version
+			- MAJOR CLEANUP of all code, including comments, and literate comments.
+			- added R2-BACKWARDS to allow loading Rebol 2 code
+			- 'INDENTED-PRINT/'INDENTED-PRIN now do logging directly, no need to call function twice.
+			- 'INDENTED-PRINT/'INDENTED-PRIN  no longer handle indenting in/out use 'PUSH-IN/'PULL-OUT
+			- simplified engine so logging and console now use all the same params and indents.
+			  logging just puts the same traces as in the console on disk.
+			  experience shows that we never want different setups. 
+			  we usually either trace in console OR on disk, rarely both at the same time.
 			
 			
 	}
@@ -305,11 +313,6 @@ slim-debugger: context [
 ;- GLOBALS
 ;
 ;-----------------------------------------------------------------------------------------------------------
-;--------------------------
-;-     vdump-hash:
-;
-;--------------------------
-vdump-hash: make hash! []
 
 
 
@@ -827,13 +830,28 @@ unless value? 'join [
 ;-     to-error()
 ;--------------------------
 unless value? 'to-error [
-	to-error: funcl [
+	to-error: func [
 		msg [string! block!]
 	][
 		make error! msg
 	]
 ]
 
+unless value? 'disarm [
+	disarm: func [e [error!]][
+		context [
+		    code:  e/code
+		    type:  e/type
+		    id:    e/id
+		    arg1:  e/arg1
+		    arg2:  e/arg2
+		    arg3:  e/arg3
+		    near:  e/near
+		    where: e/where
+		    stack: e/stack
+		]
+	]
+]
 
 
 
@@ -846,13 +864,13 @@ unless value? 'to-error [
 ;-----------------------------------------------------------------------------------------------------------
 r2-backwards-ctx: context [
 	;--------------------------
-	;-     	true?()
+	;-     true?()
 	;
 	;--------------------------
 	true?: function [val][not not :val]
 
 	;--------------------------
-	;-     	parse()
+	;-     parse()
 	;
 	;--------------------------
 	parse: funcl [
@@ -880,7 +898,7 @@ r2-backwards-ctx: context [
 	]
 
 	;--------------------------
-	;-     	remove-each()
+	;-     remove-each()
 	;
 	;--------------------------
 	remove-each: funcl [
@@ -893,7 +911,7 @@ r2-backwards-ctx: context [
 	]
 
 	;--------------------------
-	;-     	funct()
+	;-     funct()
 	;
 	;--------------------------
 	funct: :function ; <TODO>
@@ -922,7 +940,7 @@ if value? 'open [
 ;-----------------------------------------------------------------
 SLiM: context [
 	;--------------------------
-	;-      linked-slim-version:
+	;-     linked-slim-version:
 	;
 	; when slim-linked, this is the version of the original slim library used.
 	;
@@ -931,21 +949,21 @@ SLiM: context [
 	linked-slim-version: none
 	
 	;--------------------------
-	;-      id:
+	;-     id:
 	;
 	; this holds the next serial number assigned to a library (not used, deprecate?)
 	;--------------------------
 	id: 1
 	
 	;--------------------------
-	;-     	path:
+	;-     path:
 	;
 	; v1.2.2 declared, so that the 'PATH word remains local to slim.
 	;--------------------------
 	path: none 
 
 	;--------------------------
-	;-      default-lib-extensions:
+	;-     default-lib-extensions:
 	;
 	; setup the expected library extension for use by the current setup.
 	; changing it manually allows you to use a custom file extension of your choice.
@@ -965,7 +983,7 @@ SLiM: context [
 	library-index: none
 	
 	;--------------------------
-	;-      application-path:
+	;-     application-path:
 	;
 	;--------------------------
 	application-path: none
@@ -1082,117 +1100,106 @@ SLiM: context [
 	;-------------------------------
 	;-     vprinting 
 	;-------------------------------
-	verbose:    false   ; display console messages
+	verbose?:    false   ; display console messages
 	vlogging?:  false   ; display messages in log file.
 	vtabs: []
-	ltabs: []
+	;ltabs: []
 	
 	vtags: #[none]          ; setting this to a block of tags to print, allows vtags to function, making console messages very selective.
 	ntags: #[none]          ; setting this to a block of tags to ignore, prevents vtags to function, making console messages very selective.
-	log-vtags: #[none]      ; selective logging selection
-	log-ntags: #[none]      ; selective logging ignoring.
+	;log-vtags: #[none]     ; selective logging selection
+	;log-ntags: #[none]     ; selective logging ignoring.
 	vconsole: none          ; setting this to a block, means all console messages go here instead of in the console and can be spied on later !"
 	
 	vlogfile: none
 	
 	
-
-	;-------------------------------
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
 	;- VPRINT FUNCTIONS
-	;-------------------------------
-	
-	
-	;----------------
-	;-    match-tags()
-	;----
-	match-tags: func [
+	;
+	;-----------------------------------------------------------------------------------------------------------
+	;--------------------------
+	;-     qualify-tags()
+	;--------------------------
+	; purpose:  makes sure given tags comply to given template.
+	;
+	; returns:  true or false
+	;
+	; tests:    
+	;		test-group  [ slim  ]
+	;			[ slim/qualify-tags none none ]
+	;			[ slim/qualify-tags none  [ n ] ]
+	;			[ slim/qualify-tags [ n ] [ n ] ]
+	;			[ slim/qualify-tags [ n n2 ] [ n ] ]
+	;			[ slim/qualify-tags [ n n2 ] [ n2 ] ]
+	;			[ slim/qualify-tags [ n n2 ] [ n n2 ] ]
+	;			[ slim/qualify-tags [ n n2 ] [ i n2 ] ]
+	;			[ false = slim/qualify-tags [ n ] [ i ] ]
+	;			[ false = slim/qualify-tags [ n n2] [ i ] ]
+	;			[ false = slim/qualify-tags [ n ] none ]
+	;			[ false = slim/qualify-tags [ n n2] none ]
+	;		end-group
+	;
+	;		test #305 [ slim/qualify-tags 'n [ i ] ]
+	;		test #305 [ slim/qualify-tags [ n ] 'i  ]
+	;
+	;--------------------------
+	qualify-tags: funcl [
 		"return true if the specified tags match an expected template"
-		template [block!]
-		tags [block! none!]
-		/local tag success
+		template [block! none!] "when none! tags are not verified, all is good."
+		tags     [block! none!] "if none! and there is a template, we always return false"
 	][
-		success = False
-		if tags [
-			foreach tag template [
-				if any [
-					all [
-						; match all the tags at once
-						block? tag
-						((intersect tag tags) = tag)
-					]
-					
-					all [
-						;word? tag
-						found? find tags tag
-					]
-				][
-					success: True
-					break
-				]
+		any [
+			not block? template ; given filter isn't active
+			all [
+				; at this point we know template is a block
+				block? tags
+				not empty? intersect template tags
 			]
 		]
-		success
 	]
 
-	
-	;----------------
-	;-    vreset()
-	;----
-	vreset: func [] [
-		vtabs: copy []
-	]
-	
-	
-	;----------------
-	;-    vlog()
+	;--------------------------
+	;-     print?()
+	;--------------------------
+	; purpose:  detects if the print should occured based on setup and tags
 	;
-	;  set the log file to use, and incidentaly also enables logging by default.
+	; inputs:   tags may be ignored (we show all) if the library hasn't setup tags to match.
 	;
-	; the same file is used for ALL libraries (it is a slim function).
+	; returns:  true or false
 	;
-	; note that we don't check for path correctness... if you specific a folder, it will raise an error on write.
-	;----
-	vlog: func [
-		path [file!]
-	][
-		vlogfile: path
-	]
-	
-	
-	;----------------
-	;-    print?()
-	;----
+	; tests:    
+	;--------------------------
 	print?: func [
 		always
-		tags [block! none!] "a block or none"
+		tags [block! none!] "A block of tags to compare to currently active ones.  None for all tags."
 	][
 		any [
 			always
 			all [
-				verbose
-				not any [
-					all [
-						block? vtags
-						not empty? vtags
-						not match-tags vtags tags
-					]
-					all [
-						block? ntags
-						not empty? ntags
-						match-tags ntags tags
-					]
-				]
+				verbose?
+				not qualify-tags ntags tags
+				qualify-tags vtags tags
 			]
 		]
 	]
 	
-	
-	;----------------
-	;-    log?()
-	;----
+	;--------------------------
+	;-     log?()
+	;--------------------------
+	; purpose:  decide if we should write to log or not
+	;
+	; inputs:   tags may be ignored (we show all) if the library hasn't setup tags to match.
+	;
+	; returns:  true or false
+	;
+	; tests:    
+	;--------------------------
 	log?: func [
 		always
-		tags
+		tags [block! none!] "A block of tags to compare to currently active ones."
 	][
 		all [
 			file? vlogfile
@@ -1200,51 +1207,84 @@ SLiM: context [
 				always
 				all [
 					vlogging?
-					not any [
-						all [
-							block? log-vtags
-							not empty? log-vtags
-							not match-tags log-vtags tags
-						]
-						all [
-							block? log-ntags
-							not empty? log-ntags
-							match-tags log-ntags tags
-						]
-					]
+					not qualify-tags ntags tags
+					    qualify-tags vtags tags
 				]
 			]
 		]
 	]
+
+	;--------------------------
+	;-     push-in()
+	;--------------------------
+	; purpose:  adds indentation to following prints & logs
+	;--------------------------
+	push-in: funcl [][
+;		insert ltabs "    "
+		insert vtabs "    "
+	]
 	
-	
-	;----------------
-	;-    indented-print()
-	;----
-	indented-print: func [
+	;--------------------------
+	;-     pull-out()
+	;--------------------------
+	; purpose:  removes indentation to following prints & logs
+	;--------------------------
+	pull-out: funcl [][
+		remove vtabs
+	]
+
+	;--------------------------
+	;-     data-to-vstring()
+	;--------------------------
+	; purpose:  the standard function which converts any data to what vprint will dump.
+	;
+	; inputs:   any normal data (not unset! or error!)
+	;
+	; returns:  string!
+	;
+	; notes:    logic and none values are molded to reduce mis-interpretation
+	;
+	; to do:    add some tests 
+	;
+	; tests:    
+	;--------------------------
+	data-to-vstring: funcl [
 		data
-		in
-		out
-		/log
-		/local line do tabs
 	][
-		tabs: either log [ltabs][vtabs]
-		line: copy ""
-		if out [remove tabs]
-		append line tabs
-		switch/default (type?/word data) [
-			object! [append line mold first data]
-			block! [append line rejoin data]
-			string! [append line data]
-			none! []
-		][append line mold reduce data]
-		
-		if in [ insert tabs "    " ]
-		line: replace/all line "^/" rejoin [ "^/" rejoin tabs ]
-		
-		either log [
+		switch/default (type?/word :data) [
+			object! [mold first data]
+			block! [rejoin data]
+			string! [data]
+			none! logic! [mold/all data]
+		][	
+			mold reduce data
+		]
+	]
+
+	;--------------------------
+	;-     indented-print()
+	;--------------------------
+	; purpose:  low-level line-printing function used by all others
+	;
+	; inputs:   in and out will cause a 
+	;
+	; returns:  unset!
+	;
+	; notes:    - prints to console AND wrties to log (if enabled)
+	;
+	; tests:    
+	;--------------------------
+	indented-print: funcl [
+		data "something to output to console or log file."
+		always [logic! none!] "always print, ignores tags and verbose? setup.  still indents as usual"
+		tags   [block! none!]   "set of tags to compare with global vtags setup."
+	][
+		line: rejoin ["" vtabs data-to-vstring data]
+		line: replace/all line "^/" rejoin [ "^/" rejoin vtabs ]
+		if log? always tags [
 			write/append vlogfile rejoin [line "^/"] ; we must add the trailing new-line
-		][
+		]
+		if print? always tags [
 			either vconsole [
 				append/only vconsole rejoin [line "^/"]
 			][
@@ -1273,7 +1313,6 @@ SLiM: context [
 			none! []
 		][append line mold reduce data]
 		
-		
 		;line: replace/all line "^/" join "^/" tabs <SMC> To Red
 		line: replace/all line "^/" rejoin [ "^/" rejoin tabs ]
 	;   either vconsole [
@@ -1295,7 +1334,43 @@ SLiM: context [
 		]
 	]
 	
+	;--------------------------
+	;-     vreset()
+	;--------------------------
+	; purpose:  reset the indentation so we are again at root of console.
+	;
+	; notes:    - useful when we recover from some errors.
+	;--------------------------
+	vreset: func [] [
+		vtabs: copy []
+	]
 	
+	;--------------------------
+	;-     vlog()
+	;--------------------------
+	; purpose:  set the log file to use and enable logging
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    - the same file is used for ALL libraries (it is a slim function).
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	vlog: funcl [
+		filepath [file!] "filepath of log.  Must be a File, e.g. path must not end with /"
+		/extern vlogfile
+	][
+		either dir? path [
+			to-error "slim/vlog() invalid path given, requires a FILE path"
+		][
+			vlogfile: path
+		]
+	]
+		
 	;----------------
 	;-    voff()
 	;----
@@ -1310,7 +1385,7 @@ SLiM: context [
 				vtags-ctrl log-tags log-ntags log-vtags
 			]
 		][
-			verbose: off
+			verbose?: off
 			if block? log-vtags [clear log-vtags]
 			if block? vtags [clear vtags]
 		]
@@ -1324,7 +1399,7 @@ SLiM: context [
 		/tags lit-tags  "only print these tags"
 		/log log-tags   "only log these tags"
 	][
-		verbose: on
+		verbose?: on
 		either any [ tags log ][
 			if tags [
 				vtags-ctrl lit-tags vtags ntags
@@ -1408,18 +1483,11 @@ SLiM: context [
 	vin: func [
 		txt
 		/always
-		/tags ftags [block!]
+		/tags taglist [block!]
 	][
-		if print? always ftags [
-			;vprint/in/always/tags join txt " [" ftags
-			;indented-print join txt " [" yes no <SMC> To Red
-			indented-print rejoin [txt " ["] yes no
-		]
-		
-		if log? always ftags [
-			;indented-print/log join txt " [" yes no <SMC> To Red
-			indented-print/log rejoin [txt " ["] yes no 
-		]
+	
+		indented-print rejoin [txt " ["] always taglist
+		push-in
 	]
 	
 	
@@ -1595,7 +1663,7 @@ SLiM: context [
 	;
 	; 
 	;----
-	vdump: funcl [
+vdump: funcl [
 		"prints a block of information about any value (recursive)."
 		data [any-type!]
 		/always "always dump, ignore verbose flags."
@@ -1603,9 +1671,8 @@ SLiM: context [
 		
 		/threshold tr-len
 		/part display-len
-		/acc accumulator [hash!]
+		/acc accumulator [hash!] ; we force a hash! since we may do thousands of searches in a long list.
 		/no-indent
-		/extern vdump-hash
 	][
 		; return right away if we shoudn't print.
 		unless print? always none [ exit ]
@@ -1633,9 +1700,8 @@ SLiM: context [
 		;
 		; when a value is already in the accumulator, we do not traverse it... 
 		; instead we write a comment with an ID, so it can be traced.
-		;acchash: any make hash! []
-		;accumulator: any [ accumulator clear #[hash![]] ] <SMC> Changed this line
-		accumulator: any [ accumulator clear vdump-hash ]
+		;---
+		accumulator: any [ accumulator make hash! [] ]
 		
 		
 		
@@ -1960,9 +2026,21 @@ SLiM: context [
 	]
 	
 
-	;----------------
-	;-    vask()
-	;----
+	;--------------------------
+	;-         	vask()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
 	vask: funcl [
 		question
 	][
@@ -1972,10 +2050,22 @@ SLiM: context [
 	]
 
 
-	;----------------
-	;-    vexpose()
-	;----
-	vexpose: does [
+	;--------------------------
+	;-         	vimport()
+	;--------------------------
+	; purpose:  imports all vprinting function within global context.
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	vimport: does [
 		set in system/words 'von :von
 		set in system/words 'voff :voff
 		set in system/words 'vprint :vprint
@@ -1994,6 +2084,14 @@ SLiM: context [
 		set in system/words 'vlog-off :vlog-off
 		set in system/words 'vlog-reset :vlog-reset
 	]
+
+
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;-     SLIM LIB LOADING
+	;
+	;-----------------------------------------------------------------------------------------------------------
 
 
 	;----------------
@@ -2345,7 +2443,7 @@ SLiM: context [
 		; will still be bound to slim.
 		;
 		; so some things, like vprint tabs will be shared with slim, while othe things
-		; like the verbose flag will be local to the module.
+		; like the verbose? flag will be local to the module.
 		;--------------------------------------------------
 		slim-localized-funcs: [ von voff vprint vprin vindent vprobe vin vout v?? vhelp vdump vask print? log? vlog-on vlog-off]
 		
@@ -2385,7 +2483,7 @@ SLiM: context [
 		; if this new feature breaks some code, you may use the /unsafe keyword to prevent it.
 		;--------------
 		unless unsafe [
-			words: extract-set-words/only/ignore lib-spec [header self verbose vlogging? rsrc-path dir-path ]
+			words: extract-set-words/only/ignore lib-spec [header self verbose? vlogging? rsrc-path dir-path ]
 			
 			foreach item lib-spec [
 				;probe mold :item
@@ -2461,7 +2559,7 @@ SLiM: context [
 				;-         setup library vprinting
 				; temporarily set these to the slim print tools... 
 				; once the object is built, they will be bound to that object
-				verbose: false
+				verbose?: false
 				vlogging?: false
 				
 				
@@ -2532,8 +2630,8 @@ SLiM: context [
 			
 			
 			;--------------
-			; setup verbose print
-			; note that each library uses its own verbose value, so you can print only messages
+			; setup verbose? print
+			; note that each library uses its own verbose? value, so you can print only messages
 			; from a specific library and ignore ALL other printouts.
 			;------------
 			foreach word slim-localized-funcs [
@@ -2634,8 +2732,8 @@ SLiM: context [
 				slim-error "SLiM/lib?(): ERROR!! supplied data is not an object!"
 			]
 			any [
-				in lib 'verbose
-				slim-error "SLiM/lib?(): ERROR!! registered lib doesn't contain verbose attribute!?"
+				in lib 'verbose?
+				slim-error "SLiM/lib?(): ERROR!! registered lib doesn't contain verbose? attribute!?"
 			]
 			any [
 				in lib 'header
@@ -3456,7 +3554,23 @@ any library pointing to the old version still points to it.
 		mode [word!]
 	][
 		vin "find-indexed-path()"
-		
+		root: %/s/dev/projects/git/slim-libs/
+		foreach folder read root [
+			dir: join root folder
+			vin dir
+			foreach file read dir [
+				if any [
+					;find file ".red"
+					find file ".slred"
+					find file ".slr2"
+					find file ".r"
+				][
+					path: join dir file
+					v?? file
+				]
+			]
+			vout
+		]
 		vout
 	]
 		
