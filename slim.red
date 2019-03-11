@@ -320,7 +320,6 @@ slim-debugger: context [
 
 
 
-
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
 ;
@@ -980,7 +979,7 @@ SLiM: context [
 	; will also usually include a run-time generated index of packages
 	; without an explicit catalogue file (like the applicatio/libs/ path).
 	;--------------------------
-	library-index: none
+	library-index: []
 	
 	;--------------------------
 	;-     application-path:
@@ -3416,6 +3415,112 @@ any library pointing to the old version still points to it.
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	;--------------------------
+	;-         ctlg-filename:
+	;
+	;--------------------------
+	ctlg-filename: %.catalog.red
+	
+	
+	;--------------------------
+	;-         get-header()
+	;--------------------------
+	; purpose:  Returns header object of a Rebol/Red file
+	;
+	; inputs:   Absolute path of the file
+	;
+	; returns:  Header object if present, else -> none
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	get-header: funcl [
+		file-path	[file!]
+	][
+		vin "get-header()"
+		
+		header: none
+		if all [
+			not dir? file-path
+			exists? file-path
+		][
+			script: read file-path
+			
+			; Verify we're in a Red/Rebol script (ignoring case)
+			if any [
+				is-red: ("Red" = copy/part script 3)
+				"REBOL" = copy/part script 5
+			][
+				either is-red [
+					script: find script "Red"
+				][
+					script: find script "REBOL"
+				]
+				header: construct second load script
+			]
+			
+			script: none ;erase script from RAM
+		]
+		
+		vout/return header
+	]
+	
+	;--------------------------
+	;-         match-extension()
+	;--------------------------
+	; purpose:  Verify if a filename matches one of the given extensions
+	;
+	; inputs:   - Extensions can be preceded by dot or not, block of or
+	;			unique file(s)! or string(s)!
+	;			- file can be absolute or relative
+	; returns:  True | False
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	match-extension: funcl [
+		file		[file!] "Absolute path of the file"
+		extensions	[file! string! block!]
+	][
+		vin "match-extension()"
+		found: False
+		
+		; "blockify" extensions if given single value
+		if any [
+			file!   = type? extensions
+			string! = type? extensions
+		][
+			extensions: append copy [] extensions
+		]
+		
+		; Get file extension
+		file-ext: find file #"."
+		
+		; Extension lookup in list
+		if file-ext [
+			file-ext: next file-ext ; skip dot
+			
+			if 0 < length? file-ext [
+				foreach ext extensions [
+					if 0 < length? ext [
+						if #"." = first ext [remove ext] ; Remove preceding dot
+						found: ext = file-ext
+						if found [break]
+					]
+				]
+			]
+		]
+		
+		vout/return
+		found
+	]
+
+	;--------------------------
 	;-         update-index()
 	;--------------------------
 	; purpose:  using all search-paths() read every catalogue file
@@ -3434,7 +3539,7 @@ any library pointing to the old version still points to it.
 	update-index: funcl [
 	][
 		vin "update-index()"
-		
+		;search-paths 
 		vout
 	]
 	
@@ -3455,9 +3560,24 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	update-catalog: funcl [
 		dir [file!] "A disk directory (usually a package from search-paths() )"
+		/prettify	"Format file with newlines for better human readability"
 	][
 		vin "update-catalog()"
-	
+		if catalog: build-catalog/sort-versions dir [
+			if prettify [
+				foreach [lib-name versions] catalog [
+					new-line versions true
+					second: true
+					forall versions [
+						either second [
+							new-line versions true
+							second: false
+						][second: true]
+					]
+				]
+			]
+			write rejoin [dirize dir ctlg-filename] mold/all catalog
+		]
 		vout
 	]
 	
@@ -3469,9 +3589,9 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  a catalog dataset
+	; returns:  a catalog dataset or none if the given 'dir is not a directory
 	;
-	; notes:    does not WRITE any thing to disk.
+	; notes:    does not WRITE anything to disk.
 	;
 	; to do:    
 	;
@@ -3479,10 +3599,50 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	build-catalog: funcl [
 		dir [file!]
+		/sort-versions	"Will sort from highest to lowest versions for a given lib"
 	][
 		vin "build-catalog()"
-	
-		vout
+		
+		either all [
+			dir? dir
+			exists? dir
+		][
+			; [ libname [version1 path version2 path ... ] ... ]
+			catalog: copy []
+			files-in-dir: read dir
+			foreach file-name files-in-dir [
+				if match-extension file-name default-lib-extensions [
+					abs-file-path: rejoin [dir file-name]
+					file-header: get-header abs-file-path
+					if file-header [
+						if lib-name: select file-header 'slim-name [
+							lib-name: file-header/slim-name
+							lib-version: select file-header 'version
+							unless lib-version [lib-version: 1.0.0]
+							
+							either lib-ptr: select catalog lib-name [
+								; Libname is already in catalog -> Add version
+								repend lib-ptr [lib-version file-name]
+							][
+								; First time libname is met -> Add libname block
+								append catalog compose/deep [(lib-name) [(lib-version) (file-name)]]
+							]
+						]
+					]
+				]
+			]
+		][
+			catalog: none
+		]
+		
+		if sort-versions [
+			foreach [lib versions] catalog [
+				sort/skip/reverse versions 2
+			]
+		]
+		
+		
+		vout/return catalog
 	]
 	
 	;--------------------------
@@ -3492,7 +3652,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  catalogue format data
+	; returns:  catalogue format data or none on error
 	;
 	; notes:    - there may be no physical catalog on disk!
 	;             in such a case we read all files and generate one run-time.
@@ -3502,11 +3662,33 @@ any library pointing to the old version still points to it.
 	; tests:    
 	;--------------------------
 	get-catalog: funcl [
-		file [file!] "open a catalogue file, given an ABSOLUTE path"
+		dir [file!] "ABSOLUTE path of library"
 	][
 		vin "get-catalog()"
-	
-		vout
+		
+		result: none
+		if all [
+			dir? dir
+			exists? dir
+		][
+			ctlg-path: rejoin [dir ctlg-filename]
+			either exists? ctlg-path [
+				result: load ctlg-path
+			][
+				result: build-catalog dir
+			]
+			
+			foreach [libname versions] result [
+				forall versions [
+					if file! = type? first versions [
+						insert first versions dir
+					]
+				]
+			]
+		]
+		
+		vout/return
+		result
 	]
 	
 	;--------------------------
@@ -3518,7 +3700,7 @@ any library pointing to the old version still points to it.
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    when libraries are already present, they are overwritten <TODO>
 	;
 	; to do:    
 	;
@@ -3529,6 +3711,10 @@ any library pointing to the old version still points to it.
 	][
 		vin "index-catalog()"
 		
+		;library-index		
+		foreach [libname versions] catalog [
+			
+		]
 		vout
 	]
 
