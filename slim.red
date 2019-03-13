@@ -208,7 +208,7 @@ either any [
 ][
 	slim-header: system/script/header
 ]
-??  slim-header
+;??  slim-header
 ;print "!!!!!!!!!!!!"
 
 ;-                                                                                                       .
@@ -1060,9 +1060,10 @@ SLiM: context [
 	; in-memory version of all accumulated package catalogues.
 	;
 	; will also usually include a run-time generated index of packages
-	; without an explicit catalogue file (like the applicatio/libs/ path).
+	; without an explicit catalogue file (like the application/libs/ path).
+	; [libname [1.0.0 Slim %/C/dev/file.r 1.0.3 Red %...] libname [...] ...]
 	;--------------------------
-	library-index: []
+	library-index: none
 	
 	;--------------------------
 	;-     application-path:
@@ -1083,7 +1084,7 @@ SLiM: context [
 		take/last slim-path-parts
 	]
 	slim-path: to-file merge/only (copy slim-path-parts) "/"
-	?? slim-path
+	;?? slim-path
 		
 	;--------------------------
 	;-     slim-package-root:
@@ -1120,8 +1121,8 @@ SLiM: context [
 	slim-packages: head slim-packages
 	new-line/all slim-packages true
 	
-	?? slim-packages
-	?? slim-package-root
+	;?? slim-packages
+	;?? slim-package-root
 	
 	;--------------------------
 	;-     libs:
@@ -1337,12 +1338,12 @@ SLiM: context [
 		always [logic! none!]
 		tags [block! none!] "A block of tags to compare to currently active ones.  None for all tags."
 	][
-		print "^/print?()"
-		?? tags
-		?? always
-		?? vtags
-		?? ntags
-		?? verbose?
+;		print "^/print?()"
+;		?? tags
+;		?? always
+;		?? vtags
+;		?? ntags
+;		?? verbose?
 		
 		any [
 			always
@@ -1506,21 +1507,21 @@ SLiM: context [
 		tags   [block! none!] "set of tags to compare with global vtags setup. still requires verbose to be on."
 	][
 		tabs: rejoin vtabs
-		?? tabs
+		;?? tabs
 		
 		datetime: rejoin ["" now/year "-" zpad now/month 2 "-"  zpad now/day 2 " " pad/with now/time/precise 12 #"0"  " - "]
-		?? datetime
+		;?? datetime
 		
 		line: rejoin [ datetime tabs data-to-vstring data ]
 		line: replace/all line "^/" rejoin [ "^/" datetime tabs ]
-		?? line
+		;?? line
 		
 		if log? always tags [
 			write/append vlogfile rejoin [line "^/"] ; we must add the trailing new-line
 		]
 		
 		?: print? always tags
-		?? ?
+		;?? ?
 		
 		if print? always tags [
 			either vconsole [
@@ -2462,8 +2463,8 @@ SLiM: context [
 			]
 		]
 		
-		v?? version-mode
-		v?? version
+		;v?? version-mode
+		;v?? version
 		
 		;-----
 		; Initial opening trace 
@@ -2576,7 +2577,7 @@ SLiM: context [
 			]
 		]
 		
-		v?? type? lib
+		;v?? type? lib
 		
 		; in any case, check if user wanted to expose new words
 		if all [
@@ -2606,7 +2607,7 @@ SLiM: context [
 		exp-words: none
 		pfx-word: none
 		
-		v?? [type? lib]
+		;v?? [type? lib]
 		self/opening-lib-name: prev-opening-lib
 		vout 
 		first reduce [ lib lib: none ]
@@ -3102,7 +3103,7 @@ any library pointing to the old version still points to it.
 			]
 		]
 		
-		v?? [object? lib]
+		;v?? [object? lib]
 		
 		;vprint [{SLiM/cached? '} uppercase to-string libname {... } either lib [ true][false]]
 		;return lib
@@ -3152,7 +3153,7 @@ any library pointing to the old version still points to it.
 		version: as-tuple version
 		reference-version: as-tuple reference-version
 		
-		vprint [ ""  version " " mode " " reference-version ]
+		;vprint [ ""  version " " mode " " reference-version ]
 				
 		match?: switch mode [
 			at-least [
@@ -3175,7 +3176,7 @@ any library pointing to the old version still points to it.
 				]
 			]
 		]
-		v?? match?
+		;v?? match?
 		vout
 		match?
 	]
@@ -3263,7 +3264,7 @@ any library pointing to the old version still points to it.
 			(self/slim-packages)		; 4) list of subdirs in slim path
 		]
 		new-line/all paths true
-		v?? paths
+		;v?? paths
 		vout
 		paths
 	]
@@ -3285,7 +3286,7 @@ any library pointing to the old version still points to it.
 		paths: search-paths  ; v1.2.2 change
 		
 		foreach path paths [
-			vprint path
+			;vprint path
 			if file? path [
 				filepath: join path file
 				either exists? filepath [
@@ -3306,7 +3307,7 @@ any library pointing to the old version still points to it.
 			]
 		]
 		
-		vprint filepath
+		;vprint filepath
 		vout
 		return filepath
 	]
@@ -3493,7 +3494,7 @@ any library pointing to the old version still points to it.
 		;/local from to sw w
 	][
 		vin "slim/build-expose-list()"
-		v?? spec
+		;v?? spec
 		
 		list: copy []
 		
@@ -3997,7 +3998,8 @@ any library pointing to the old version still points to it.
 			; Scan all files in library directory
 			foreach file-name files-in-dir [
 				; Is current file extension in default-lib-extensions?
-				if match-extension file-name default-lib-extensions [
+				extensions: extract default-lib-extensions 2
+				if match-extension file-name extensions [
 					abs-file-path: rejoin [dir file-name]
 					; Has current file a header?
 					file-header: get-header abs-file-path
@@ -4120,6 +4122,8 @@ any library pointing to the old version still points to it.
 		/overwrite				"Indexed versions will be overwritten by catalog ones"
 	][
 		vin "index-catalog()"
+		; Because library-index is initialized to none
+		unless library-index [library-index: copy []]
 		
 		foreach [libname cat-versions] catalog [
 			either lib-ptr: find library-index libname [
