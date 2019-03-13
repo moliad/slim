@@ -3413,13 +3413,99 @@ any library pointing to the old version still points to it.
 	;
 	;-     CATALOG MANAGEMENT
 	;
+	; Slim packages can contain a %.catalog.red file that is used to get the package
+	; portrait in one read. This file contains a loadable block formatted as
+	;	[ lib-name [version path version path ...] lib-name [...] ... ]
+	; The paths are relative to the package directory but no recursive scanning is 
+	; executed so, in the catalogs, they will always be the name of the library file.
+	;
+	; We use "catalog" to define the file on disk and "library-index" to define the content
+	; of the catalogs that were loaded in memory. Library-index has the same format as
+	; the catalogs but instead of relative paths, they store absolute paths.
+	;	
+	; FUNCTIONS
+	;
+	;	build-catalog(package-dir):
+	;		This function takes the directory absolute path of a package, scan it to find
+	;		all the slim libraries it contains. These files are only those that have a
+	;		slim-name in their header and that are compatible with Red-Slim (defined in
+	;		default-lib-extensions)
+	;		- Each version of a library will only have one path. If there is more than one
+	;			file that is tagged with a given version for a given library, only the first
+	;			one will be added to the catalog.
+	;
+	;	get-catalog(package-dir):
+	;		This function takes the directory absolute path of a package and tries to load
+	;		its catalog (%.catalog.red). If it fails, it calls the 'build-catalog() function
+	;		to generate the catalog in-memory for the given package.
+	;		- This function convert the relative paths found in catalogs to their absolute 
+	;			form
+	;
+	;	update-catalog(package-dir):
+	;		This function takes the directory absolute path of a package, builds a catalog
+	;		block and write it to the .catalog.red file. If a file is already present, it is
+	;		overwritten.
+	;
+	;	index-catalog(package-dir):
+	;		This function takes the directory absolute path of a package and loads its catalog
+	;		in the library-index. If a library is already indexed, it will look for the absent
+	;		versions (i.e. the versions that are in the package-dir that are not in the indexed
+	;		libraries for each library) and only add these.
+	;
+	;	update-index():
+	;		This function looks for catalogs in all the search-paths() and load them all in
+	;		the library-index.
+	;		- In fact, it calls index-catalog() that calls get-catalog() so all the libraries
+	;			with all their available versions will be in the library-index after this call
+	;			(because get-catalog() generates a catalog event if the file is not in the
+	;			package directory -> see first TODO? note)
+	;
+	;	find-indexed-path(lib-name, version, mode):
+	;		This function looks in the library-index for a library version that satisfies given
+	;		mode
+	;
+	; TESTS 
+	;	- build-catalog()
+	;		- library files not in valid extensions
+	;			-> Should not be in result
+	;		- multiple different versions for a given library
+	;			-> All the versions should be in result with correct paths
+	;		- multiple same versions for a given library
+	;			-> The version should appear only once in the result
+	;		- All the valid extensions should be considered
+	;	- get-catalog()
+	;		- All paths should be absolute and correct
+	;		- no catalog file in package arg
+	;			-> same result as build-catalog but with absolute paths
+	;		- catalog file exists in package arg
+	;			-> content of the catalog should be returned
+	;	- update-catalog()
+	;		- If the catalog file is not present, it should be created
+	;		- If it is present, it should be overwritten
+	;		- Verify catalog file correctness
+	;	- index-catalog()
+	;		- Library not in index -> all the versions/abs paths should be added
+	;		- Library in index
+	;			- catalog versions already indexed
+	;				-> index not modified
+	;			- catalog has versions that are not indexed
+	;				-> only these versions should be added with their abs path
+	;	- update-index()
+	;		- Test with 2 packages in root, one with a catalog file, one without
+	;			-> All the libraries should be indexed
+	;	- find-indexed-path()
+	;		- ??
+	;
+	; TODO?
+	;	- When we call get-catalog() on a package, if the catalog file is not present, we
+	;		could write it because we will generate it at this moment
 	;-----------------------------------------------------------------------------------------------------------
+	
 	;--------------------------
 	;-         ctlg-filename:
 	;
 	;--------------------------
 	ctlg-filename: %.catalog.red
-	
 	
 	;--------------------------
 	;-         get-header()
@@ -3519,7 +3605,34 @@ any library pointing to the old version still points to it.
 		vout/return
 		found
 	]
-
+	
+	;--------------------------
+	;-         abs-path?()
+	;--------------------------
+	; purpose:  Returns true if the given path is absolute, False if not
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	abs-path?: funcl [
+		path	[file!]
+	][
+		vin "abs-path?()"
+		vout/return
+		either all [
+			0 < length? path ; Because of %""
+			#"/" = first path
+		][true][false]
+		
+	]
+	
 	;--------------------------
 	;-         update-index()
 	;--------------------------
@@ -3610,19 +3723,28 @@ any library pointing to the old version still points to it.
 			; [ libname [version1 path version2 path ... ] ... ]
 			catalog: copy []
 			files-in-dir: read dir
+			; Scan all files in library directory
 			foreach file-name files-in-dir [
+				; Is current file extension in default-lib-extensions?
 				if match-extension file-name default-lib-extensions [
 					abs-file-path: rejoin [dir file-name]
+					; Has current file a header?
 					file-header: get-header abs-file-path
 					if file-header [
+						; To be a library, header must have field 'slim-name
 						if lib-name: select file-header 'slim-name [
 							lib-name: file-header/slim-name
 							lib-version: select file-header 'version
+							; If no version in header, we infer version 1
 							unless lib-version [lib-version: 1.0.0]
 							
+							; Add to catalog
 							either lib-ptr: select catalog lib-name [
-								; Libname is already in catalog -> Add version
-								repend lib-ptr [lib-version file-name]
+								; Libname is already in catalog
+								; If version not already present -> Add version
+								unless find lib-ptr lib-version [
+									repend lib-ptr [lib-version file-name]
+								]
 							][
 								; First time libname is met -> Add libname block
 								append catalog compose/deep [(lib-name) [(lib-version) (file-name)]]
@@ -3656,6 +3778,7 @@ any library pointing to the old version still points to it.
 	;
 	; notes:    - there may be no physical catalog on disk!
 	;             in such a case we read all files and generate one run-time.
+	;			- The paths of the libraries are absolute
 	;
 	; to do:    
 	;
@@ -3665,6 +3788,10 @@ any library pointing to the old version still points to it.
 		dir [file!] "ABSOLUTE path of library"
 	][
 		vin "get-catalog()"
+		
+		unless abs-path? dir [
+			do make error! rejoin ["get-catalog(): dir must be absolute! Received " mold/all dir]
+		]
 		
 		result: none
 		if all [
@@ -3678,6 +3805,7 @@ any library pointing to the old version still points to it.
 				result: build-catalog dir
 			]
 			
+			; Modify the catalog paths to be absolute
 			foreach [libname versions] result [
 				forall versions [
 					if file! = type? first versions [
@@ -3700,20 +3828,40 @@ any library pointing to the old version still points to it.
 	;
 	; returns:  
 	;
-	; notes:    when libraries are already present, they are overwritten <TODO>
+	; notes:    <SMC> I modified the signature of this function (took a catalog before)
+	;	because there is a confusion between absolute and relative paths. In the catalog
+	;	files, we want to use relative paths for portability (i.e. possibility of moving
+	;	packages around without regenerating catalog => better for sharing). In the 
+	;	memory index, we want to use absolute paths because a library can have versions
+	;	coming from different packages. Because of that, we want to force the update
+	;	of the index to use the get-catalog function that translates the relative paths
+	;	to their absolute version. So, instead of giving a catalog object (for which we
+	;	can not enforce the use of absolute paths) to this function, we give it a package
+	;	path and the function will have the job of calling get-catalog() that does the
+	;	conversion.
 	;
 	; to do:    
 	;
 	; tests:    
 	;--------------------------
 	index-catalog: funcl [
-		catalog [block!]
+		dir		[file!]
+		/overwrite				"Indexed versions will be overwritten by catalog ones"
 	][
 		vin "index-catalog()"
 		
-		;library-index		
-		foreach [libname versions] catalog [
-			
+		foreach [libname cat-versions] catalog [
+			either lib-ptr: find library-index libname [
+				; Lib is already in index
+				indexed-versions: first next lib-ptr
+				; Find versions in catalog that are not indexed
+				new-versions: exclude cat-versions indexed-versions
+				; Append new versions to index
+				append indexed-versions new-versions
+			][
+				; Lib is not in index
+				repend library-index [libname cat-versions]
+			]
 		]
 		vout
 	]
