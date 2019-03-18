@@ -3790,7 +3790,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   Absolute path of the file
 	;
-	; returns:  Header object if present, else -> none
+	; returns:  [file-libtype, header] object if present, else -> none
 	;
 	; notes:    
 	;
@@ -3800,33 +3800,36 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	get-header: funcl [
 		file-path	[file!]
+		libs-spec	[block!]	"[ext libtype ext libtype ...]"
 	][
 		vin "get-header()"
 		
 		header: none
+		file-libtype: none
+		
 		if all [
 			not dir? file-path
 			exists? file-path
 		][
 			script: read file-path
 			
-			; Verify we're in a Red/Rebol script (ignoring case)
-			if any [
-				is-red: ("Red" = copy/part script 3)
-				"REBOL" = copy/part script 5
-			][
-				either is-red [
-					script: find script "Red"
-				][
-					script: find script "REBOL"
+			libtypes: extract/index libs-spec 2 2
+			
+			; Look if the first word of the file is one of our lib types
+			foreach libtype libtypes [
+				if (to-string libtype) = (copy/part script length? to-string libtype) [
+					; If so, load the header
+					file-libtype: libtype
+					header: construct second load script
+					break
 				]
-				header: construct second load script
 			]
 			
 			script: none ;erase script from RAM
 		]
 		
-		vout/return header
+		vout/return
+		either file-libtype [reduce [file-libtype header]][none]
 	]
 	
 	;--------------------------
@@ -3933,9 +3936,9 @@ any library pointing to the old version still points to it.
 	]
 	
 	;--------------------------
-	;-         clean-versions()
+	;-         preferred-libtype()
 	;--------------------------
-	; purpose:  Keep only one version with preferred path in [1.1 %path1 1.1 %path2 ...]
+	; purpose:  
 	;
 	; inputs:   
 	;
@@ -3947,116 +3950,12 @@ any library pointing to the old version still points to it.
 	;
 	; tests:    
 	;--------------------------
-	clean-versions: funcl [
-		versions	[block!]
-		extensions	[block!]
+	preferred-libtype: funcl [
+		a b libtypes
 	][
-		vin "clean-versions()"
-		extensions: uniform-exts extensions
-		
-		
-		
-		vout
-	]
-	
-	;--------------------------
-	;-         merge-versions()
-	;--------------------------
-	; purpose:  Takes 2 versions blocks and merge them based on preferred extensions
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	merge-versions: funcl [
-		versions-1	[block!]
-		versions-2	[block!]
-		extensions	[block!]
-	][
-		vin "merge-versions()"
-		; Get extensions as file! preceded by #"."
-		extensions: uniform-exts extensions
-		
-		; We copy the versions blocks because we may mutilate them
-		v1s: copy versions-1
-		v2s: copy versions-2
-		
-		; Filter the versions blocks to keep only one version with
-		;	the preferred path
-		v1s: clean-versions v1s
-		v2s: clean-versions v2s
-		
-		; [1.1.1 %path1 2.2.2 %path2] [1.1.1 %path1.2 3.3.3 %path3]
-		foreach [v1 p1] v1s [
-			; Find if the version is also specified in versions-2
-			if found: find v2s v1 [
-				; Find out which path is the preferred one
-				pref-path: preferred-ext? reduce [p1 next found]
-				; Remove the managed version from versions-2 block
-				remove/part 2 found
-				append result [v1 pref-path]
-			]
-		]
-		
-		either cver: find lib-ptr lib-version [
-			; Version present => update if preferred extension
-			pref-path: preferred-ext? reduce [second cver file-name] extensions
-			
-			change next cver pref-path
-		][
-			; Version not already present => Add version
-			repend lib-ptr [lib-version file-name]
-		]
-		
-		vout
-	]
-	
-	;--------------------------
-	;-         preferred-ext?()
-	;--------------------------
-	; purpose:  Returns preferred path based on sorted extensions
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	preferred-ext?: funcl [
-		paths		[block!]
-		extensions	[block!]
-	][
-		vin "preferred-ext?()"
-		pref-path: none
-		pref-index: 99999
-		
-		extensions: uniform-exts extensions
-		
-		if 0 < length? paths [
-			foreach filepath paths [
-				file-ext: find/last filepath #"."
-				ptr: find extensions file-ext
-				if ptr [
-					if (index? ptr) < pref-index [
-						pref-path: filepath
-						pref-index: index? ptr
-					]
-				]
-			]
-		]
-		
-		vout/return
-		pref-path
+		i-a: index? find libtypes a
+		i-b: index? find libtypes b
+		(index? find libtypes a ) <= (index? find libtypes b )
 	]
 	
 	;--------------------------
@@ -4078,7 +3977,10 @@ any library pointing to the old version still points to it.
 	update-index: funcl [
 	][
 		vin "update-index()"
-		;search-paths 
+		paths: search-paths 
+		foreach path paths [
+			index-catalog path
+		]
 		vout
 	]
 	
@@ -4102,7 +4004,7 @@ any library pointing to the old version still points to it.
 		/prettify	"Format file with newlines for better human readability"
 	][
 		vin "update-catalog()"
-		if catalog: build-catalog/sort-versions dir [
+		if catalog: build-catalog dir [
 			if prettify [
 				foreach [lib-name versions] catalog [
 					new-line versions true
@@ -4127,7 +4029,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  [lib-name lib-version] or none on failure
+	; returns:  [lib-name lib-version lib-type] or none on failure
 	;
 	; notes:    
 	;
@@ -4137,12 +4039,13 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	get-lib-info: funcl [
 		abs-file-path	[file!]	"ABSOLUTE path of a library"
+		libs-specs		[block!]
 	][
 		vin "get-lib-info()"
-		lib-version: lib-name: none
+		lib-version: lib-name: lib-type: file-header: none
 		
 		; Has current file a header?
-		file-header: get-header abs-file-path
+		set [lib-type file-header] get-header abs-file-path libs-specs
 		if file-header [
 			; To be a library, header must have field 'slim-name
 			if lib-name: select file-header 'slim-name [
@@ -4154,9 +4057,58 @@ any library pointing to the old version still points to it.
 		]
 		
 		vout/return
-		either lib-name [reduce [lib-name lib-version]][none]
+		either lib-name [reduce [lib-name lib-version lib-type]][none]
 	]
 	
+	;--------------------------
+	;-         sort-filter-versions()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	sort-filter-versions: funcl [
+		versions	[block!]
+		libtypes	[block!]
+	][
+		vin "sort-filter-versions()"
+		; Sorting
+		sort/skip/all/compare versions 3 func [a b] [
+			either a/1 = b/1 [
+				preferred-libtype a/3 b/3 libtypes
+			][
+				a/1 > b/1 
+			]
+		]
+		
+		; Filtering
+		until [
+			version: versions/1 
+			;libname: libs/2
+			;libtype: libs/3
+
+			either find/reverse versions version [
+				remove/part versions 3
+			][
+				versions: skip versions 3
+			]
+			
+			tail? versions 
+		]
+		
+		versions: head versions
+
+		vout/return
+		versions
+	]
 	
 	;--------------------------
 	;-         build-catalog()
@@ -4175,51 +4127,53 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	build-catalog: funcl [
 		dir [file!]
-		/sort-versions	"Will sort from highest to lowest versions for a given lib"
 	][
 		vin "build-catalog()"
 		
 		catalog: none
 		
-		extensions: extract default-lib-extensions 2
+		libtypes: extract/index default-lib-extensions 2 2
+		; Format extensions list as file! preceded by dot
+		extensions: uniform-exts extract default-lib-extensions 2
+		
 		; <TEMP><TODO> Remove rebol because encoding is not supported yet
-		if r-ext: find extensions ".r" [remove r-ext]
-				
+		if r-lib: find libtypes 'rebol [remove r-lib]
+		if r-ext: find extensions %.r [remove r-ext]
+		
 		if all [
 			dir? dir
 			exists? dir
 		][
-			; [ libname [version1 path version2 path ... ] ... ]
+			; [ libname [version path libtype version path libtype... ] ... ]
 			catalog: copy []
 			
 			; Scan all files in library directory
 			files-in-dir: read dir
+			
 			; Keep only supported files 
 			filtered-files: filter-extensions files-in-dir extensions
 			
+			; Accumulate libraries and their versions in catalog
 			foreach file-name filtered-files [
 				abs-file-path: rejoin [dir file-name]
 				; If file is a slim-library
-				if set [lib-name lib-version] get-lib-info abs-file-path [
-					; Add to catalog
+				if (set [lib-name lib-version lib-type] get-lib-info abs-file-path default-lib-extensions) [
 					either lib-versions: select catalog lib-name [
-						; Libname is already in catalog
-						new-versions: merge-versions lib-versions reduce [lib-version file-name] 
-						; <TODO> Change lib versions block
+						; Lib already in catalog -> Add new version
+						repend lib-versions [lib-version file-name lib-type]
 					][
-						; First time libname is met -> Add libname block
-						append catalog compose/deep [(lib-name) [(lib-version) (file-name)]]
+						; Lib absent from catalog -> Add lib
+						append catalog compose/deep [(lib-name) [(lib-version) (file-name) (lib-type)]]
 					]
 				]
 			]
-		]
-		
-		if sort-versions [
-			foreach [lib versions] catalog [
-				sort/skip/reverse versions 2
+			
+			[lib1 [1.1.1 %... libtypt]]
+			; Sort/filter versions to get only one version per library with preferred libtype
+			foreach [lib-name versions] catalog [
+				sort-filter-versions versions libtypes ; The catalog versions is modified
 			]
 		]
-		
 		
 		vout/return catalog
 	]
@@ -4265,7 +4219,7 @@ any library pointing to the old version still points to it.
 			; Modify the catalog paths to be absolute
 			foreach [libname versions] result [
 				forall versions [
-					if file! = type? first versions [
+					if (file! = type? first versions) [
 						insert first versions dir
 					]
 				]
@@ -4303,29 +4257,26 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	index-catalog: funcl [
 		dir		[file!]			"ABSOLUTE path of the package"
-		/overwrite				"Indexed versions will be overwritten by catalog ones"
 		/extern library-index
 	][
 		vin "index-catalog()"
 		; Initialize library-index if not already done
 		unless library-index [library-index: copy []]
 		
+		libtypes: extract/index default-lib-extensions 2 2
+		; <TEMP><TODO> Remove rebol because encoding is not supported yet
+		if r-lib: find libtypes 'rebol [remove r-lib]
+		
 		catalog: get-catalog dir
-		foreach [libname cat-versions] catalog [
-			either lib-ptr: find library-index libname [
-				?? lib-ptr
-				; Lib is already in index
-				indexed-versions: first next lib-ptr
-				?? indexed-versions
-				; Find versions in catalog that are not indexed
-				new-versions: exclude cat-versions indexed-versions
-				?? new-versions
-				; Append new versions to index
-				append indexed-versions new-versions
-				?? indexed-versions
-			][
-				; Lib is not in index
-				repend library-index [libname cat-versions]
+		if catalog [
+			foreach [libname cat-versions] catalog [
+				either index-versions: select library-index libname [
+					append index-versions cat-versions
+					sort-filter-versions index-versions libtypes ; index-versions modified inplace
+				][
+					; Lib is not in index
+					repend library-index [libname cat-versions]
+				]
 			]
 		]
 		vout
@@ -4339,7 +4290,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  
+	; returns:  absolute paths of a satisfying lib-name version or none
 	;
 	; notes:    
 	;
@@ -4351,26 +4302,23 @@ any library pointing to the old version still points to it.
 		lib-name [word!]
 		version [tuple!]
 		mode [word!]
+		/extern library-index
 	][
 		vin "find-indexed-path()"
-		root: %/s/dev/projects/git/slim-libs/
-		foreach folder read root [
-			dir: join root folder
-			vin dir
-			foreach file read dir [
-				if any [
-					;find file ".red"
-					find file ".slred"
-					find file ".slr2"
-					find file ".r"
-				][
-					path: join dir file
-					v?? file
+		result-path: none
+		
+		versions: select library-index lib-name
+		if versions [
+			; Take first version in list that satisfy
+			;	Based on the assumption they are ordered from newer to older
+			foreach [ref-version path libtype] versions [
+				if qualify-version version mode ref-version [
+					result-path: path
 				]
 			]
-			vout
 		]
-		vout
+		vout/return
+		result-path
 	]
 	
 	;--------------------------
@@ -4390,6 +4338,7 @@ any library pointing to the old version still points to it.
 	; tests:    
 	;--------------------------
 	reset-lib-index: funcl [
+		/extern library-index
 	][
 		vin "reset-lib-index()"
 		library-index: none
