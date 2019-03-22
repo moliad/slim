@@ -322,7 +322,6 @@ slim-debugger: context [
 
 
 
-
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
 ;
@@ -1210,6 +1209,8 @@ SLiM: context [
 	;   - Expected construct Keyword (Red, Slim or REBOL)
 	;   - encoding (Windows-1252 or utf-8)
 	;   - Rebol dialect: Rebol2 or Red
+	;
+	; NOTE: Sort the extensions from the prefered one to lesser one
 	;--------------------------
 	default-lib-extensions: [
 		".slred"	Slim	; Slim, 	utf-8,			Native Red
@@ -1224,7 +1225,8 @@ SLiM: context [
 	; in-memory version of all accumulated package catalogues.
 	;
 	; will also usually include a run-time generated index of packages
-	; without an explicit catalogue file (like the applicatio/libs/ path).
+	; without an explicit catalogue file (like the application/libs/ path).
+	; [libname [1.0.0 Slim %/C/dev/file.r 1.0.3 Red %...] libname [...] ...]
 	;--------------------------
 	library-index: none
 	
@@ -1247,7 +1249,7 @@ SLiM: context [
 		take/last slim-path-parts
 	]
 	slim-path: to-file merge/only (copy slim-path-parts) "/"
-	?? slim-path
+	;?? slim-path
 		
 	;--------------------------
 	;-     slim-package-root:
@@ -1284,8 +1286,8 @@ SLiM: context [
 	slim-packages: head slim-packages
 	new-line/all slim-packages true
 	
-	?? slim-packages
-	?? slim-package-root
+	;?? slim-packages
+	;?? slim-package-root
 	
 	;--------------------------
 	;-     libs:
@@ -1501,12 +1503,12 @@ SLiM: context [
 		always [logic! none!]
 		tags [block! none!] "A block of tags to compare to currently active ones.  None for all tags."
 	][
-		print "^/print?()"
-		?? tags
-		?? always
-		?? vtags
-		?? ntags
-		?? verbose?
+;		print "^/print?()"
+;		?? tags
+;		?? always
+;		?? vtags
+;		?? ntags
+;		?? verbose?
 		
 		any [
 			always
@@ -1670,21 +1672,21 @@ SLiM: context [
 		tags   [block! none!] "set of tags to compare with global vtags setup. still requires verbose to be on."
 	][
 		tabs: rejoin vtabs
-		?? tabs
+		;?? tabs
 		
 		datetime: rejoin ["" now/year "-" zpad now/month 2 "-"  zpad now/day 2 " " pad/with now/time/precise 12 #"0"  " - "]
-		?? datetime
+		;?? datetime
 		
 		line: rejoin [ datetime tabs data-to-vstring data ]
 		line: replace/all line "^/" rejoin [ "^/" datetime tabs ]
-		?? line
+		;?? line
 		
 		if log? always tags [
 			write/append vlogfile rejoin [line "^/"] ; we must add the trailing new-line
 		]
 		
 		?: print? always tags
-		?? ?
+		;?? ?
 		
 		if print? always tags [
 			either vconsole [
@@ -2626,8 +2628,8 @@ SLiM: context [
 			]
 		]
 		
-		v?? version-mode
-		v?? version
+		;v?? version-mode
+		;v?? version
 		
 		;-----
 		; Initial opening trace 
@@ -2740,7 +2742,7 @@ SLiM: context [
 			]
 		]
 		
-		v?? type? lib
+		;v?? type? lib
 		
 		; in any case, check if user wanted to expose new words
 		if all [
@@ -2770,7 +2772,7 @@ SLiM: context [
 		exp-words: none
 		pfx-word: none
 		
-		v?? [type? lib]
+		;v?? [type? lib]
 		self/opening-lib-name: prev-opening-lib
 		vout 
 		first reduce [ lib lib: none ]
@@ -3266,7 +3268,7 @@ any library pointing to the old version still points to it.
 			]
 		]
 		
-		v?? [object? lib]
+		;v?? [object? lib]
 		
 		;vprint [{SLiM/cached? '} uppercase to-string libname {... } either lib [ true][false]]
 		;return lib
@@ -3316,7 +3318,7 @@ any library pointing to the old version still points to it.
 		version: as-tuple version
 		reference-version: as-tuple reference-version
 		
-		vprint [ ""  version " " mode " " reference-version ]
+		;vprint [ ""  version " " mode " " reference-version ]
 				
 		match?: switch mode [
 			at-least [
@@ -3339,7 +3341,7 @@ any library pointing to the old version still points to it.
 				]
 			]
 		]
-		v?? match?
+		;v?? match?
 		vout
 		match?
 	]
@@ -3427,7 +3429,7 @@ any library pointing to the old version still points to it.
 			(self/slim-packages)		; 4) list of subdirs in slim path
 		]
 		new-line/all paths true
-		v?? paths
+		;v?? paths
 		vout
 		paths
 	]
@@ -3449,7 +3451,7 @@ any library pointing to the old version still points to it.
 		paths: search-paths  ; v1.2.2 change
 		
 		foreach path paths [
-			vprint path
+			;vprint path
 			if file? path [
 				filepath: join path file
 				either exists? filepath [
@@ -3470,7 +3472,7 @@ any library pointing to the old version still points to it.
 			]
 		]
 		
-		vprint filepath
+		;vprint filepath
 		vout
 		return filepath
 	]
@@ -3657,7 +3659,7 @@ any library pointing to the old version still points to it.
 		;/local from to sw w
 	][
 		vin "slim/build-expose-list()"
-		v?? spec
+		;v?? spec
 		
 		list: copy []
 		
@@ -3848,7 +3850,277 @@ any library pointing to the old version still points to it.
 	;
 	;-     CATALOG MANAGEMENT
 	;
+	; Slim packages can contain a %.catalog.red file that is used to get the package
+	; portrait in one read. This file contains a loadable block formatted as
+	;	[ lib-name [version path version path ...] lib-name [...] ... ]
+	; The paths are relative to the package directory but no recursive scanning is 
+	; executed so, in the catalogs, they will always be the name of the library file.
+	;
+	; We use "catalog" to define the file on disk and "library-index" to define the content
+	; of the catalogs that were loaded in memory. Library-index has the same format as
+	; the catalogs but instead of relative paths, they store absolute paths.
+	;	
+	; FUNCTIONS
+	;
+	;	build-catalog(package-dir):
+	;		This function takes the directory absolute path of a package, scan it to find
+	;		all the slim libraries it contains. These files are only those that have a
+	;		slim-name in their header and that are compatible with Red-Slim (defined in
+	;		default-lib-extensions)
+	;		- Each version of a library will only have one path. If there is more than one
+	;			file that is tagged with a given version for a given library, only the first
+	;			one will be added to the catalog.
+	;
+	;	get-catalog(package-dir):
+	;		This function takes the directory absolute path of a package and tries to load
+	;		its catalog (%.catalog.red). If it fails, it calls the 'build-catalog() function
+	;		to generate the catalog in-memory for the given package.
+	;		- This function convert the relative paths found in catalogs to their absolute 
+	;			form
+	;
+	;	update-catalog(package-dir):
+	;		This function takes the directory absolute path of a package, builds a catalog
+	;		block and write it to the .catalog.red file. If a file is already present, it is
+	;		overwritten.
+	;
+	;	index-catalog(package-dir):
+	;		This function takes the directory absolute path of a package and loads its catalog
+	;		in the library-index. If a library is already indexed, it will look for the absent
+	;		versions (i.e. the versions that are in the package-dir that are not in the indexed
+	;		libraries for each library) and only add these.
+	;
+	;	update-index():
+	;		This function looks for catalogs in all the search-paths() and load them all in
+	;		the library-index.
+	;		- In fact, it calls index-catalog() that calls get-catalog() so all the libraries
+	;			with all their available versions will be in the library-index after this call
+	;			(because get-catalog() generates a catalog event if the file is not in the
+	;			package directory -> see first TODO? note)
+	;
+	;	find-indexed-path(lib-name, version, mode):
+	;		This function looks in the library-index for a library version that satisfies given
+	;		mode
+	;
+	; TESTS 
+	;	- build-catalog()
+	;		- library files not in valid extensions
+	;			-> Should not be in result
+	;		- multiple different versions for a given library
+	;			-> All the versions should be in result with correct paths
+	;		- multiple same versions for a given library
+	;			-> The version should appear only once in the result
+	;			-> The Red slim lib closest form should appear when conflict in versions
+	;		- All the valid extensions should be considered
+	;	- get-catalog()
+	;		- All paths should be absolute and correct
+	;		- no catalog file in package arg
+	;			-> same result as build-catalog but with absolute paths
+	;		- catalog file exists in package arg
+	;			-> content of the catalog should be returned
+	;	- update-catalog()
+	;		- If the catalog file is not present, it should be created
+	;		- If it is present, it should be overwritten
+	;		- Verify catalog file correctness
+	;	- index-catalog()
+	;		- Library not in index -> all the versions/abs paths should be added
+	;		- Library in index
+	;			- catalog versions already indexed
+	;				-> index modified only for the versions that present a closest ext
+	;					e.g. prefer .red than .r
+	;			- catalog has versions that are not indexed
+	;				-> only these versions should be added with their abs path
+	;	- update-index()
+	;		- Test with 2 packages in root, one with a catalog file, one without
+	;			-> All the libraries should be indexed
+	;	- find-indexed-path()
+	;		- ??
+	;
+	; TODO?
+	;	- When we call get-catalog() on a package, if the catalog file is not present, we
+	;		could write it because we will generate it at this moment
 	;-----------------------------------------------------------------------------------------------------------
+	
+	;--------------------------
+	;-         ctlg-filename:
+	;
+	;--------------------------
+	ctlg-filename: %.catalog
+	
+	;--------------------------
+	;-         get-header()
+	;--------------------------
+	; purpose:  Returns header object of a Rebol/Red file
+	;
+	; inputs:   Absolute path of the file
+	;
+	; returns:  [file-libtype, header] object if present, else -> none
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	get-header: funcl [
+		file-path	[file!]
+		libs-spec	[block!]	"[ext libtype ext libtype ...]"
+	][
+		vin "get-header()"
+		
+		header: none
+		file-libtype: none
+		
+		if all [
+			not dir? file-path
+			exists? file-path
+		][
+			script: read file-path
+			
+			libtypes: extract/index libs-spec 2 2
+			
+			; Look if the first word of the file is one of our lib types
+			foreach libtype libtypes [
+				if (to-string libtype) = (copy/part script length? to-string libtype) [
+					; If so, load the header
+					file-libtype: libtype
+					header: construct second load script
+					break
+				]
+			]
+			
+			script: none ;erase script from RAM
+		]
+		
+		vout/return
+		either file-libtype [reduce [file-libtype header]][none]
+	]
+	
+	;--------------------------
+	;-         uniform-exts()
+	;--------------------------
+	; purpose:  Uniformize extensions block to file! preceded by a dot e.g. %.red
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    Returns a copy of the input
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	uniform-exts: funcl [
+		extensions	[block!]	{A block of extensions e.g. ["red" "r" ...]}
+	][
+		vin "uniform-exts()"
+		exts-cpy: copy extensions
+		
+		; Add preceding dots if not already there
+		foreach ext exts-cpy [
+			unless #"." = first ext [insert ext #"."]
+		]
+		
+		; Convert extensions to file!
+		forall exts-cpy [change exts-cpy to-file first exts-cpy]	
+		
+		vout/return
+		exts-cpy
+	]
+	
+	;--------------------------
+	;-         filter-extensions()
+	;--------------------------
+	; purpose:  Keep only if a filename matches one of the given extensions
+	;
+	; inputs:   - Extensions can be preceded by dot or not, block of or
+	;			unique file(s)! or string(s)!
+	;			- file can be absolute or relative
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	filter-extensions: funcl [
+		files		[block!]				"Block of file!"
+		extensions	[file! string! block!]
+	][
+		vin "filter-extensions()"
+		
+		; "blockify" extensions if given single value
+		if any [
+			file!   = type? exts-cpy
+			string! = type? exts-cpy
+		][
+			exts-cpy: append copy [] exts-cpy
+		]
+		
+		; Format extensions as %.ext + copy extensions arg
+		exts-cpy: uniform-exts extensions
+		
+		remove-each file files [
+			; Get file extension
+			file-ext: find/last file #"."
+			not find exts-cpy file-ext
+		]
+		
+		vout/return
+		files
+	]
+	
+	;--------------------------
+	;-         abs-path?()
+	;--------------------------
+	; purpose:  Returns true if the given path is absolute, False if not
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	abs-path?: funcl [
+		path	[file!]
+	][
+		vin "abs-path?()"
+		vout/return
+		either all [
+			0 < length? path ; Because of %""
+			#"/" = first path
+		][true][false]
+		
+	]
+	
+	;--------------------------
+	;-         preferred-libtype()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	preferred-libtype: funcl [
+		a b libtypes
+	][
+		i-a: index? find libtypes a
+		i-b: index? find libtypes b
+		(index? find libtypes a ) <= (index? find libtypes b )
+	]
+	
 	;--------------------------
 	;-         update-index()
 	;--------------------------
@@ -3868,7 +4140,10 @@ any library pointing to the old version still points to it.
 	update-index: funcl [
 	][
 		vin "update-index()"
-		
+		paths: search-paths 
+		foreach path paths [
+			index-catalog path
+		]
 		vout
 	]
 	
@@ -3889,12 +4164,114 @@ any library pointing to the old version still points to it.
 	;--------------------------
 	update-catalog: funcl [
 		dir [file!] "A disk directory (usually a package from search-paths() )"
+		/prettify	"Format file with newlines for better human readability"
 	][
 		vin "update-catalog()"
-	
+		if catalog: build-catalog dir [
+			if prettify [
+				foreach [lib-name versions] catalog [
+					new-line versions true
+					second: true
+					forall versions [
+						either second [
+							new-line versions true
+							second: false
+						][second: true]
+					]
+				]
+			]
+			write rejoin [dirize dir ctlg-filename] mold/all catalog
+		]
 		vout
 	]
 	
+	;--------------------------
+	;-         get-lib-info()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  [lib-name lib-version lib-type] or none on failure
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	get-lib-info: funcl [
+		abs-file-path	[file!]	"ABSOLUTE path of a library"
+		libs-specs		[block!]
+	][
+		vin "get-lib-info()"
+		lib-version: lib-name: lib-type: file-header: none
+		
+		; Has current file a header?
+		set [lib-type file-header] get-header abs-file-path libs-specs
+		if file-header [
+			; To be a library, header must have field 'slim-name
+			if lib-name: select file-header 'slim-name [
+				lib-name: file-header/slim-name
+				lib-version: select file-header 'version
+				; If no version in header, we infer version 1
+				unless lib-version [lib-version: 1.0.0]
+			]
+		]
+		
+		vout/return
+		either lib-name [reduce [lib-name lib-version lib-type]][none]
+	]
+	
+	;--------------------------
+	;-         sort-filter-versions()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	sort-filter-versions: funcl [
+		versions	[block!]
+		libtypes	[block!]
+	][
+		vin "sort-filter-versions()"
+		; Sorting
+		sort/skip/all/compare versions 3 func [a b] [
+			either a/1 = b/1 [
+				preferred-libtype a/3 b/3 libtypes
+			][
+				a/1 > b/1 
+			]
+		]
+		
+		; Filtering
+		until [
+			version: versions/1 
+			;libname: libs/2
+			;libtype: libs/3
+
+			either find/reverse versions version [
+				remove/part versions 3
+			][
+				versions: skip versions 3
+			]
+			
+			tail? versions 
+		]
+		
+		versions: head versions
+
+		vout/return
+		versions
+	]
 	
 	;--------------------------
 	;-         build-catalog()
@@ -3903,9 +4280,9 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  a catalog dataset
+	; returns:  a catalog dataset or none if the given 'dir is not a directory
 	;
-	; notes:    does not WRITE any thing to disk.
+	; notes:    does not WRITE anything to disk.
 	;
 	; to do:    
 	;
@@ -3915,8 +4292,53 @@ any library pointing to the old version still points to it.
 		dir [file!]
 	][
 		vin "build-catalog()"
-	
-		vout
+		
+		catalog: none
+		
+		libtypes: extract/index default-lib-extensions 2 2
+		; Format extensions list as file! preceded by dot
+		extensions: uniform-exts extract default-lib-extensions 2
+		
+		; <TEMP><TODO> Remove rebol because encoding is not supported yet
+		if r-lib: find libtypes 'rebol [remove r-lib]
+		if r-ext: find extensions %.r [remove r-ext]
+		
+		if all [
+			dir? dir
+			exists? dir
+		][
+			; [ libname [version path libtype version path libtype... ] ... ]
+			catalog: copy []
+			
+			; Scan all files in library directory
+			files-in-dir: read dir
+			
+			; Keep only supported files 
+			filtered-files: filter-extensions files-in-dir extensions
+			
+			; Accumulate libraries and their versions in catalog
+			foreach file-name filtered-files [
+				abs-file-path: rejoin [dir file-name]
+				; If file is a slim-library
+				if (set [lib-name lib-version lib-type] get-lib-info abs-file-path default-lib-extensions) [
+					either lib-versions: select catalog lib-name [
+						; Lib already in catalog -> Add new version
+						repend lib-versions [lib-version file-name lib-type]
+					][
+						; Lib absent from catalog -> Add lib
+						append catalog compose/deep [(lib-name) [(lib-version) (file-name) (lib-type)]]
+					]
+				]
+			]
+			
+			[lib1 [1.1.1 %... libtypt]]
+			; Sort/filter versions to get only one version per library with preferred libtype
+			foreach [lib-name versions] catalog [
+				sort-filter-versions versions libtypes ; The catalog versions is modified
+			]
+		]
+		
+		vout/return catalog
 	]
 	
 	;--------------------------
@@ -3926,21 +4348,49 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  catalogue format data
+	; returns:  catalogue format data or none on error
 	;
 	; notes:    - there may be no physical catalog on disk!
 	;             in such a case we read all files and generate one run-time.
+	;			- The paths of the libraries are absolute
 	;
 	; to do:    
 	;
 	; tests:    
 	;--------------------------
 	get-catalog: funcl [
-		file [file!] "open a catalogue file, given an ABSOLUTE path"
+		dir [file!] "ABSOLUTE path of library"
 	][
 		vin "get-catalog()"
-	
-		vout
+		
+		unless abs-path? dir [
+			do make error! rejoin ["get-catalog(): dir must be absolute! Received " mold/all dir]
+		]
+		
+		result: none
+		if all [
+			dir? dir
+			exists? dir
+		][
+			ctlg-path: rejoin [dir ctlg-filename]
+			either exists? ctlg-path [
+				result: load ctlg-path
+			][
+				result: build-catalog dir
+			]
+			
+			; Modify the catalog paths to be absolute
+			foreach [libname versions] result [
+				forall versions [
+					if (file! = type? first versions) [
+						insert first versions dir
+					]
+				]
+			]
+		]
+		
+		vout/return
+		result
 	]
 	
 	;--------------------------
@@ -3952,17 +4402,46 @@ any library pointing to the old version still points to it.
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    <SMC> I modified the signature of this function (took a catalog before)
+	;	because there is a confusion between absolute and relative paths. In the catalog
+	;	files, we want to use relative paths for portability (i.e. possibility of moving
+	;	packages around without regenerating catalog => better for sharing). In the 
+	;	memory index, we want to use absolute paths because a library can have versions
+	;	coming from different packages. Because of that, we want to force the update
+	;	of the index to use the get-catalog function that translates the relative paths
+	;	to their absolute version. So, instead of giving a catalog object (for which we
+	;	can not enforce the use of absolute paths) to this function, we give it a package
+	;	path and the function will have the job of calling get-catalog() that does the
+	;	conversion.
 	;
 	; to do:    
 	;
 	; tests:    
 	;--------------------------
 	index-catalog: funcl [
-		catalog [block!]
+		dir		[file!]			"ABSOLUTE path of the package"
+		/extern library-index
 	][
 		vin "index-catalog()"
+		; Initialize library-index if not already done
+		unless library-index [library-index: copy []]
 		
+		libtypes: extract/index default-lib-extensions 2 2
+		; <TEMP><TODO> Remove rebol because encoding is not supported yet
+		if r-lib: find libtypes 'rebol [remove r-lib]
+		
+		catalog: get-catalog dir
+		if catalog [
+			foreach [libname cat-versions] catalog [
+				either index-versions: select library-index libname [
+					append index-versions cat-versions
+					sort-filter-versions index-versions libtypes ; index-versions modified inplace
+				][
+					; Lib is not in index
+					repend library-index [libname cat-versions]
+				]
+			]
+		]
 		vout
 	]
 
@@ -3974,7 +4453,7 @@ any library pointing to the old version still points to it.
 	;
 	; inputs:   
 	;
-	; returns:  
+	; returns:  absolute paths of a satisfying lib-name version or none
 	;
 	; notes:    
 	;
@@ -3986,25 +4465,46 @@ any library pointing to the old version still points to it.
 		lib-name [word!]
 		version [tuple!]
 		mode [word!]
+		/extern library-index
 	][
 		vin "find-indexed-path()"
-		root: %/s/dev/projects/git/slim-libs/
-		foreach folder read root [
-			dir: join root folder
-			vin dir
-			foreach file read dir [
-				if any [
-					;find file ".red"
-					find file ".slred"
-					find file ".slr2"
-					find file ".r"
-				][
-					path: join dir file
-					v?? file
+		result-path: none
+		
+		versions: select library-index lib-name
+		if versions [
+			; Take first version in list that satisfy
+			;	Based on the assumption they are ordered from newer to older
+			foreach [ref-version path libtype] versions [
+				if qualify-version version mode ref-version [
+					result-path: path
 				]
 			]
-			vout
 		]
+		vout/return
+		result-path
+	]
+	
+	;--------------------------
+	;-         reset-lib-index()
+	;--------------------------
+	; purpose:  Reset library index
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    As 2019-03-14, simply set to none but it might be more
+	;	complex in the future so we abstract in a function
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	reset-lib-index: funcl [
+		/extern library-index
+	][
+		vin "reset-lib-index()"
+		library-index: none
 		vout
 	]
 		
