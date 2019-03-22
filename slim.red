@@ -208,7 +208,7 @@ either any [
 ][
 	slim-header: system/script/header
 ]
-??  slim-header
+;??  slim-header
 ;print "!!!!!!!!!!!!"
 
 ;-                                                                                                       .
@@ -322,6 +322,75 @@ slim-debugger: context [
 
 
 
+
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- WINDOWS 1252 DECODER
+;
+; copied from code shared with no explicit copyright 
+; https://github.com/kermitaner
+;
+;-----------------------------------------------------------------------------------------------------------
+win-1252map: []
+insert/dup win-1252map #{} 255
+
+;-----------------------------------------
+; build win-1252 decoding map.
+;-----------------------------------------
+; generate ut8 map dec -> utf8
+context [
+	bin: debase {4oKswoHigJrGkuKAnuKApuKAoOKAocuG4oCwxaDigLnFksKNxb3Cj8KQ4oCY4oCZ4oCc4oCd4oCi4oCT4oCUy5zihKLFoeKAusWTwp3FvsW4wqDCocKiwqPCpMKlwqbCp8KowqnCqsKrwqzCrcKuwq/CsMKxwrLCs8K0wrXCtsK3wrjCucK6wrvCvMK9wr7Cv8OAw4HDgsODw4TDhcOGw4fDiMOJw4rDi8OMw43DjsOPw5DDkcOSw5PDlMOVw5bDl8OYw5nDmsObw5zDncOew5/DoMOhw6LDo8Okw6XDpsOnw6jDqcOqw6vDrMOtw67Dr8Oww7HDssOzw7TDtcO2w7fDuMO5w7rDu8O8w73DvsO/}
+
+	ut8: append #{} first bin
+	ind: 128
+
+	foreach ele (skip bin 1) [
+		if (ele >= to-integer #{c0}) [
+			win-1252map/:ind: copy ut8
+			ind: ind + 1
+			clear ut8
+		]
+		append ut8 ele 
+	]
+	win-1252map/:ind: ut8
+]
+
+
+;--------------------------
+;- decode-1252()
+;--------------------------
+; purpose:  reads a windows-1252 encoded string within Red
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    we do not verify encoding of source file, we expect it to be windows-1252.
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+decode-1252: function [
+	bin [binary!] 
+	/lines 
+	/extern win-1252map   ; not required, but good for explicitely stating dependencies
+][
+	bout: make binary! length? bin
+	  
+	foreach ele bin [ either ele < 128 [append bout ele][append bout win-1252map/:ele]   ]
+	bin: to-string bout
+
+	if lines [return split bin newline]
+	
+	bin
+]
+
+
+
+
+
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
 ;
@@ -330,6 +399,9 @@ slim-debugger: context [
 ;-----------------------------------------------------------------------------------------------------------
 ;--------------------------
 ;-     funcl()
+;--------------------------
+; to do:    - improve the args block evaluation to include full parse capacity.
+;           - raise an appropriate error when invalid args block is given.
 ;--------------------------
 funcl: :function
 
@@ -402,13 +474,11 @@ as-tuple: funcl [
 ; note:  - we manage the data in-place
 ;        - copy if you want to preserve container as a spec
 ;--------------------
-at*: :at
-skip*: :skip
 merge: function [
 	container [series!] "series to insert into" 
 	data "data to insert within, single value or series, a single value will be repeated as needed to reach end of container."
 	/between "Do not add item at end, only in-between container items."
-	/zero "insert data before first element of container"
+	/zero "insert data before first element of containe (zero-based indexing)r"
 	/skip step [integer!] "skip container records when merging" 
 	/every n [integer!]   "view the data as fixed-sized records, first being always inserted. (ex: 2= 1 3 5 7)"
 	/amount a [integer!]  "insert this many elements from data at a time, if every is specified, this amount cannot be larger than it."
@@ -788,11 +858,11 @@ flag-enum: funcl [
 ;--------------------------
 ;-     platform-name()
 ;--------------------------
-; purpose:  returns the name of the platform this rebol was compiled for
+; purpose:  returns the name of the platform this red was compiled for
 ;
 ; returns:  word! or none if platform is unknown
 ;
-; notes:    
+; notes:    use of lit-word! is not required in select block
 ;
 ; tests:    
 ;   switch platform-name  [
@@ -803,15 +873,6 @@ flag-enum: funcl [
 ;       LINUX []
 ;   ]
 ;--------------------------
-;platform-name: does [
-;	select [
-;		1 AMIGA
-;		2 OSX
-;		3 WIN32
-;		4 LINUX ; (32 bits)
-;	] system/version/4 
-;]
-
 platform-name: does [
 	select [
 		'Windows	WIN32
@@ -821,6 +882,127 @@ platform-name: does [
 	] system/platform
 ]
 
+
+;--------------------------
+;-     load-header()
+;--------------------------
+; purpose:  
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+=start=: [.here: if (head? .here) ]
+=S=: charset "Ss"
+=L=: charset "Ll"
+=R=: charset "Rr"
+=i=: charset "Ii"
+=M=: charset "Mm"
+=E=: charset "Ee"
+=D=: charset "Dd"
+=B=: charset "Bb"
+=O=: charset "Oo"
+
+load-header: funcl [
+	data [file! string!] "when a file we adapt to all 4 header types"
+	/then 'script-pos [word!] ""
+][
+	;vin "load-header()"
+	tadam: none
+	
+	if none? script-pos [
+		script-pos:  'tadam
+	]
+
+	a: script-pos
+	
+	if file? data [
+		data: read/binary data
+	]
+	parse data [
+		; find type of script
+		;
+		; note we allow prefix text, 
+		; as long as one of the header markes exist.
+		some [
+			[ =start= | "^/"   ] 
+			;(print to-string probe to-char first .here)
+			[
+				[
+					; note that Red is the only Slim format which forces the CASE (we follow the Red standard)
+					"Red" (
+							.source-type: 'RED 
+							;print "found RED script" 
+						)
+						break
+					| =S= =L= =i= =M= (
+							.source-type: 'SLIM 
+							;print "found slim script" 
+						)
+						break
+					| =S= =L= =R= "2" (
+							.source-type: 'SLR2 
+							;print "found slr2 script" 
+						)
+						break
+					| =R= =E= =B= =O= =L= (
+							.source-type: 'REBOL 
+							;print "found rebol 2 script" 
+						)
+						break
+				]
+				.script-start: 
+			]
+			| skip 
+		]
+	]
+	
+	; here we attempt to decode and load a block after the type script token
+	switch .source-type [
+		RED SLIM SLR2 [
+			.script-start: to-string .script-start
+			do compose [data: load/next .script-start script-pos]
+		]
+		
+		REBOL [
+			.script-start: decode-1252 .script-start
+			do compose [data: load/next .script-start script-pos]
+		]
+	]
+	
+	;vout
+	data
+]
+
+
+;-                                                                                                         .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- ALIASES
+;
+; use these to allow slim modules to use core words without preventing their overwrite within a slim lib.
+;-----------------------------------------------------------------------------------------------------------
+
+;--------------------------
+;-     get*:
+;--------------------------
+get*: :get
+
+;--------------------------
+;-     at*:
+;--------------------------
+at*: :at
+
+; should not be needed, as we do not use open directly
+;if value? 'open [
+;	open*: :open
+;]
 
 
 
@@ -991,25 +1173,6 @@ r2-backwards-ctx: context [
 	;--------------------------
 	funct: :function ; <TODO>
 ]
-
-
-;-                                                                                                         .
-;-----------------------------------------------------------------------------------------------------------
-;
-;- ALIASES
-;
-; use these to allow slim modules to use core words without preventing their overwrite within a slim lib.
-;-----------------------------------------------------------------------------------------------------------
-
-;--------------------------
-;-     get*:
-;--------------------------
-get*: :get
-
-; should not be needed, as we do not use open directly
-;if value? 'open [
-;	open*: :open
-;]
 
 
 
