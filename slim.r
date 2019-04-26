@@ -653,6 +653,47 @@ platform-name: does [
 ]
 
 
+
+;--------------------------
+;- form-error()
+;--------------------------
+; purpose:  generate a end-user string from a given error object
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+form-error: funcl [
+	{Compose a message representation of an error object} 
+	error [error! object!] "The error" 
+	/with markup [block! string! none!] 
+	{Use to make more readable. markup 1 & 4 'wrap' the message.
+markup 2 & 3 for 'near and 'where attributes respectively.
+All four elements of 'markup are optional}
+][
+	if error? :error [
+		error: disarm error  ;; convert to object
+	]
+	format: compose[(any[markup ["" "" "" ""]])]
+	all[
+		4 > length? format
+		append format array/initial (4 - length? format) ""
+	]
+	set [arg1 arg2 arg3][error/arg1 error/arg2 error/arg3]
+	message: get in get in system/error error/type error/id
+	if block? message[bind message 'arg1]
+	message: reform reduce message
+	if error/near [append message rejoin[format/2 " Near: " error/near]]
+	if error/where [append message rejoin[format/3 " Where: " error/near]]
+	rejoin[format/1 message format/4]
+]
+
 	
 ;-                                                                                                         .
 ;-----------------------------------------------------------------------------------------------------------
@@ -2535,7 +2576,7 @@ any library pointing to the old version still points to it.
 		paths
 	]
 	
-
+            
 
 
 	;----------------
