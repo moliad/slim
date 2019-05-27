@@ -170,9 +170,16 @@ Red [
 			- added /on to vlog to enable logging in one call.
 			
 			
-		v2.0.1 - 2019-03-13
+		v2.0.1 - 2019-03-13 - 2019-03-26
 			- now uses a catalog system which speeds up load-time.
 			  when a file catalog exists, we use it directly and actual file info.
+			- added pseudo-type engine
+			- added advanced funcs function builder
+			- updated all main vprinting functions to use new vprint core architecture
+			- totally new 'OPEN & 'IMPORT functions.
+			
+		v2.0.2 -  2019-03-27
+			- integrate the catalog mechanism to speed up library load times.
 			
 			
 	}
@@ -357,7 +364,7 @@ context [
 
 
 ;--------------------------
-;- decode-1252()
+;-     decode-1252()
 ;--------------------------
 ; purpose:  reads a windows-1252 encoded string within Red
 ;
@@ -388,21 +395,457 @@ decode-1252: function [
 
 
 
+;-                                                                                                       .
+;-----------------------------------------------------------------------------------------------------------
+;
+;- GLOBALS
+;
+;-----------------------------------------------------------------------------------------------------------
+
+make*: :make
+
+;--------------------------
+;- pseudo-type!:
+;
+; use this as the basis for your new custom types.  all specs are added at boot.
+;
+; use the slim/add-type to add a new type to the system (or local to library).
+;--------------------------
+pseudo-type!: context [
+	;--------------------------
+	;-     name:
+	;
+	;--------------------------
+	name: 'type
+	
+	;--------------------------
+	;-     basetype:
+	;
+	; what original Red type is this derived from (used for funcs args).
+	;--------------------------
+	basetype: string!
+	
+	;--------------------------
+	;-     make:
+	;
+	;--------------------------
+	make: function [data][:data]
+		
+	;--------------------------
+	;-     is?()
+	;--------------------------
+	; returns:   #[true] if all is good, 'coerce if data should be sent through make, or #[false] if data is invalid.
+	;
+	; notes:     - this is a generic function which should work for any custom type.
+	;            - you can re-implement a more specific function for your type.
+	;            - to use this function as-is, implement a real 'RULE below to test it.
+	;--------------------------
+	is?: function [
+		data ; allows any data.
+	][
+		parse reduce [data] rule
+	]
+	
+	;--------------------------
+	;-     rule:
+	;
+	;--------------------------
+	rule: [skip]
+]
+
+;--------------------------
+;- slim-pseudo-types:
+;
+; this is a preparation to user types, but will be enabled as function args, 
+; data constructors, parse rule and type comparison.
+;
+; each type defined will add a to-xxx, xxx? function and a =xxx!= parse rule. 
+;
+; furthermore the type will be available as an argument filter in funcl.
+;
+; never refer to this value directly, as it will be replaced often.
+;--------------------------
+slim-pseudo-types: context [
+	;--------------------------
+	;-     dir!:
+	;
+	; represents a directory, so it should always be terminated by a "/"
+	;--------------------------
+	dir!: make pseudo-type! [
+		;--------------------------
+		;         name:
+		;
+		;--------------------------
+		name: 'dir
+		
+		;--------------------------
+		;         make()
+		;--------------------------
+		make: function [
+			data [file! string! block!] "a block! input will add a / between each value."
+		][
+			if string? data [
+				data: to-file data
+			]
+			
+			if block? data [
+				rval: %""
+				parse data [
+					opt [
+						  [ %/ | '/ | "/" | #"/" ] (append rval %/)
+						| [ %. | %"" | '. | "" ] (append rval %.)
+					]
+					any [
+						.here:
+						copy .val skip
+						(
+							append rval .val
+							unless is? data [append rval %/]
+						)
+					]
+				]
+				data: rval
+				rval: none
+			]
+			
+			unless is? data [
+				append data #"/"
+			]
+			data
+		]
+		
+		;--------------------------
+		;         is()
+		;--------------------------
+		; purpose:  faster implementation for dir! type
+		;--------------------------
+		is: function [
+			data
+		][
+			all [
+				file? :data
+				#"/" = last :data
+			]
+		]
+		
+		;--------------------------
+		;         rule:
+		; this can be used to test this in a parse rule or as a function argument.
+		;--------------------------
+		=slash=: charset "/" 
+		=not-slash=: complement =slash=
+		rule: [
+			ahead file!
+			into [
+				[some [[ here: any =not-slash= ] =slash=]]
+			]
+		]
+	]
+	
+	;--------------------------
+	;-     numbers!:
+	;
+	; contains a list of integer! and float! values.
+	;--------------------------
+	numbers!: make pseudo-type! [
+		name: 'numbers
+		basetype: block!
+		rule: []
+		is?: function [
+			data ; allows any data.
+		][
+			.rval: true ; at any problem, we return false instantly
+			
+			;vprint ">>>"
+			unless block? data [return false]
+			values: reduce data
+			;v?? data
+			;vprint "<<<"
+			
+			parse values [
+				some [
+					  integer!
+					| float!
+					| none! (.rval: 'coerce)
+					| time! (.rval: 'coerce)
+					| (return false)
+				]
+			]
+			if any [
+				find data word! 
+				find data paren!
+			][
+				.rval: 'coerce
+			]
+			.rval
+		]
+		make: function [values [block!]][
+			;pre-allocate space. much faster
+			data: make* block! length? values 
+			val: none
+			
+			;vprint "===="
+			values: reduce values
+			;v?? values
+			;vprint "===="
+			
+			; we try to typecast any value to some form of number, including reducing words, if we find some.
+			foreach value values [
+				switch/default type?/word :value [
+					float! integer! [append data value]
+					time!           [append data to-float value]
+;					word!           [
+;						set/any 'val get/any value
+;						switch/default type?/word :val [
+;							float! integer! [append data value]
+;							time! [append data to-float value	]
+;							none! [ ]
+;							unset! [
+;								to-error rejoin ["word " value " has no value"]
+;							]
+;						][
+;							to-error rejoin ["word " value " doesn't contain a number!, time! none!  type value"]
+;						]
+;					]
+					
+					; explicitely ignore these
+					none! [ ]
+				][
+					to-error rejoin ["invalid value given for numbers data at " mold/all :value]
+				]
+			]
+			data
+		]
+	]
+	
+]
+
+;--------------------------
+;- slim-pseudo-type:
+;
+; just stores all the pseudo types in a list, so we can easily
+; find them in a parse rule
+;--------------------------
+=slim-pseudo-type=: []
+
+
+
+;--------------------------
+;- add-pseudo-type()
+;--------------------------
+; purpose:  
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    
+;
+; to do:    
+;
+; tests:    
+;--------------------------
+add-pseudo-type: function [
+	type [object!]
+][
+	set to-word rejoin [type/name "?"] get in type 'is?
+	set to-word rejoin [type/name "!"] get in type 'rule
+	set to-word rejoin ["to-" type/name ] get in type 'make
+	unless empty? =slim-pseudo-type= [
+		append =slim-pseudo-type= '|
+	]
+	append =slim-pseudo-type= to-lit-word rejoin [type/name "!"]
+]
+
+
+foreach type words-of slim-pseudo-types [
+	add-pseudo-type slim-pseudo-types/:type
+]
+
 
 
 ;-                                                                                                       .
 ;-----------------------------------------------------------------------------------------------------------
 ;
-;- GLOBAL CONTEXT FUNCTIONS
+;- GLOBAL FUNCTIONS
 ;
 ;-----------------------------------------------------------------------------------------------------------
+
 ;--------------------------
 ;-     funcl()
 ;--------------------------
-; to do:    - improve the args block evaluation to include full parse capacity.
-;           - raise an appropriate error when invalid args block is given.
-;--------------------------
 funcl: :function
+
+;--------------------------
+;-     funcs()
+;--------------------------
+; purpose:  Improved function calling, with argument type and value checking.
+;
+; inputs:   
+;
+; returns:  
+;
+; notes:    - we expect /extern to be the LAST refinement
+;           - pseudo types may have overlapping lexers, so we test them in the given order.
+;           - lit word arguments currently do not support expressions and pseudo-types.
+;           - we expect ALL arg doc-strings to be AFTER type definitions (R2 supports either-or).
+;
+; to do:   - Convert error creation to Internal mechanisms by adding new error! definitions to internal Red specs.
+;
+; tests:    
+;--------------------------
+funcs: function [
+	"advanced function builder"
+	spec [block!] 
+	body [block!]
+	/transparent "return none instead of raising an error on invalid input formatting"
+][
+	v?? transparent
+	
+	vprint "FUNCS START"
+	; we accumulate the actual function arg spec here
+	func-spec: copy []
+	
+	; we accumulate any argument verification here.
+	; given body will follow and only execute if all inputs are 
+	func-body: copy []
+	
+	v?? =slim-pseudo-type=
+
+	=funcs-args=: [
+		(vprint "Found arg declaration")
+		(.argspec: copy []); this is the real function spec 
+		any [
+			[
+				;----
+				; test pseudo type
+				[
+					set .type =slim-pseudo-type= (
+						; try to find type object from type name
+						unless .type-ctx: get in slim-pseudo-types .type [
+							to-error rejoin ["Invalid Pseudo-type found in FUNCS  (" .type ")"]
+						]
+					  	append .argspec .type-ctx/basetype
+					  	error-effect: compose/deep pick [
+			  				; we don't raise an error, we just return none and 
+			  				[return none]
+			  				; we raise an error
+			  				[
+			  					to-error (rejoin ["given '" (uppercase to-string .argname)  " data doesn't comply to required format for " (uppercase to-string .type-ctx/name) "! pseudo-type" ] ) 
+			  				]
+			  			] transparent
+			  			
+					  	vprint "=================="
+					  	
+			  			arg-check: compose/deep [
+			  				validation: (to-word rejoin [.type-ctx/name "?"]) (.argname)
+			  				
+			  				either validation [
+			  					; we know the data is valid but needs to be coerced first
+			  					if validation = 'coerce [
+			  						vprint (rejoin ["coercing to " .type-ctx/name "! data"])
+			  						(to-set-word .argname) (to-word rejoin ["to-" .type-ctx/name ]) (.argname)
+			  					]
+			  				][
+			  					(error-effect)
+			  				]
+			  			]
+			  			v?? arg-check
+			  			append func-body arg-check
+					)
+					(vprint ["found pseudo-type: " .type])
+				]
+				
+				;----
+				; test real type
+				| [
+					set .type word! 
+					if (attempt [any [datatype? get .type  typeset? get .type]]) (append .argspec .type)  (vprint ["found datatype: " .type])
+				]
+				| [
+				;----
+				; return ERROR about invalid spec
+					.here:
+					set .type skip
+					(to-error rejoin ["Invalid argument spec given to FUNCS at: " mold .here ] )
+				]
+			]
+			opt [
+				  ahead paren! =funcs-args-expr=
+				| ahead block! =funcs-args-parser=
+			]
+		]
+		(append/only func-spec .argspec )
+	]
+	=funcs-args-expr=: [
+		(vprint "found arg expression")
+		any skip
+	]
+	=funcs-args-parser=: [
+		(vprint "found arg parser")
+		set .rule block!
+		(
+		  	append func-body compose/deep/only [
+		  		unless PARSE (.argname) (.rule) [
+		  			to-error (rejoin ["Data provided for '" uppercase to-string .argname " argument doesn't comply to required " uppercase mold .type " format (" mold .rule ")" ])
+		  		]
+		  	]
+		  	new-line last func-body true
+		)
+	]
+	
+	parse spec [
+		opt [set .argstr string! (vprint "found docstring" append func-spec .argstr)] ; function doc string
+		
+		any [
+			;--------------------
+			; lit-argument
+			;--------------------
+			[
+				set .argname 'lit-word (append func-spec .argname)
+				opt [ set .argspec block!  (append func-spec .argspec) ]
+				opt [ set .argdoc  string! (append func-spec .argdoc) ]
+			]
+		
+			;--------------------
+			; argument
+			;--------------------
+			| [
+				set .argname word! (append func-spec .argname)
+				(vprint ["found argument " .argname] )
+				opt [ ahead block! into =funcs-args= ] ; a complex definition with types, pseudo types and expressions
+				opt [ ahead paren! into =funcs-args-expr= ] ; just an expression to match on input
+				opt [ set .argdoc  string! (vprint "found docstring" append func-spec .argdoc) ]
+			]
+			
+			;--------------------
+			; refinement
+			;--------------------
+			| [
+				refinement! 
+				opt [
+					=funcs-args=
+				]
+			]
+		]
+		
+		
+		opt [
+			/extern (vprint "found extern")
+		]
+		
+	]
+
+	v?? func-spec
+	v?? func-body
+	
+	fstart: tail func-body
+	append func-body body
+	new-line fstart true
+	
+	f: function func-spec func-body
+	:f
+]
 
 ;--------------------------
 ;-     zpad()
@@ -910,16 +1353,22 @@ platform-name: does [
 
 load-header: funcl [
 	data [file! string!] "when a file we adapt to all 4 header types"
-	/then 'script-pos [word!] ""
+	/then 'script-pos  [word!] ""
+	/type 'script-type [word!] "give a word to assign the type of loaded header"
 ][
 	;vin "load-header()"
 	tadam: none
+	stype: none
 	
 	if none? script-pos [
 		script-pos:  'tadam
 	]
 
-	a: script-pos
+	if none? script-type [
+		script-type:  'stype
+	]
+
+	;a: script-pos
 	
 	if file? data [
 		data: read/binary data
@@ -931,23 +1380,23 @@ load-header: funcl [
 		; as long as one of the header markes exist.
 		some [
 			[ =start= | "^/"   ] 
-			;(print to-string probe to-char first .here)
+			;(vprint to-string vprobe to-char first .here)
 			[
 				[
 					; note that Red is the only Slim format which forces the CASE (we follow the Red standard)
 					"Red" (
 							.source-type: 'RED 
-							;print "found RED script" 
+							;vprint "found RED script" 
 						)
 						break
 					| =S= =L= =i= =M= (
 							.source-type: 'SLIM 
-							;print "found slim script" 
+							;vprint "found slim script" 
 						)
 						break
 					| =S= =L= =R= "2" (
 							.source-type: 'SLR2 
-							;print "found slr2 script" 
+							;vprint "found slr2 script" 
 						)
 						break
 					| =R= =E= =B= =O= =L= (
@@ -974,10 +1423,14 @@ load-header: funcl [
 			do compose [data: load/next .script-start script-pos]
 		]
 	]
+	if type [
+		set script-type .source-type
+	]
 	
 	;vout
 	data
 ]
+
 
 
 ;-                                                                                                         .
@@ -1017,8 +1470,6 @@ at*: :at
 ;-     join()
 ;--------------------------
 unless value? 'join [
-	; return a COPY of path + filename
-	;----
 	join: func [
 	    "Concatenates values."
 	    value "Base value"
@@ -1034,9 +1485,10 @@ unless value? 'join [
 ;--------------------------
 unless value? 'to-error [
 	to-error: func [
+		"generate a simple user error from a string of text"
 		msg [string! block!]
 	][
-		make error! msg
+		do make error! msg ; do is required to trigger the error
 	]
 ]
 
@@ -1076,13 +1528,52 @@ unless value? 'dt [
 ;--------------------------
 ;-     true?()
 ;--------------------------
-unless value? 'true? [
-	true?: func [
-	    "Returns true/false if an expression can be used as a truthy value in conditional."
-	    val
-	][not not :val]
+true?: func [
+    "Returns true only when a value is the explicit #[true] value."
+    val
+][
+	all [
+		logic? :val
+		val
+	]
 ]
 
+;--------------------------
+;-     false?()
+;--------------------------
+false?: func [
+    "Returns true only when a value is the explicit #[false] value."
+    val
+][
+	all [
+		logic? :val
+		not val
+	]
+]
+
+;--------------------------
+;-     truthy?()
+;--------------------------
+; purpose:  returns true if the given data is considered true as a conditional.
+;
+; inputs:   any data except error and unset!
+;
+; returns:  true or false
+;
+; notes:    different than 'TRUE?
+;--------------------------
+truthy?: function [val][not not :val]
+
+;--------------------------
+;- falsy?()
+;--------------------------
+; purpose:  returns true if the given data is considered false as a conditional.
+;
+; inputs:   any data except error and unset!
+;
+; returns:  true or false
+;--------------------------
+falsy?: funcl [val][not :val]
 
 
 ;-                                                                                                       .
@@ -1159,7 +1650,6 @@ r2-backwards-ctx: context [
 		data	[series!]		"The series to traverse (modified)."
 		body	[block!]		"Block to evaluate (return TRUE to remove)."
 	][
-	
 		;print ">>"
 		remove-each word data body
 		;print "<<"
@@ -1218,17 +1708,6 @@ SLiM: context [
 		".slr2" 	slr2	; Slr2,		utf-8,			Red with Rebol2 backwards binding
 		".r"		rebol	; Rebol,	Windows-1252,	Native Rebol2
 	]
-	
-	;--------------------------
-	;-     library-index:
-	;
-	; in-memory version of all accumulated package catalogues.
-	;
-	; will also usually include a run-time generated index of packages
-	; without an explicit catalogue file (like the application/libs/ path).
-	; [libname [1.0.0 Slim %/C/dev/file.r 1.0.3 Red %...] libname [...] ...]
-	;--------------------------
-	library-index: none
 	
 	;--------------------------
 	;-     application-path:
@@ -1317,7 +1796,7 @@ SLiM: context [
 	; if this is set to false, then all open calls use the paths dir and use find-path and do.
 	; otherwise it will only do libs directly from the link-cache variable instead.
 	;
-	; catalogue will have to reflect the value of linked libs, and may still allow 
+	; catalog will have to reflect the value of linked libs, and may still allow 
 	; run-time linking for things like plugins.
 	;
 	; <TODO> support run-time link even if statically linked.
@@ -1432,6 +1911,19 @@ SLiM: context [
 	;--------------------------
 	vlogfile: none
 	
+	;--------------------------
+	;-     vlog-time?:
+	;
+	; when true, timing info will be added to each line.
+	;--------------------------
+	vlog-time?: true
+	
+	;--------------------------
+	;-     vprint-time?:
+	;
+	;--------------------------
+	vprint-time?: false
+	
 	
 	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
@@ -1470,12 +1962,13 @@ SLiM: context [
 		template [block! none!] "when none! tags are not verified, all is good."
 		tags     [block! none!] "if none! and there is a template, we always return false"
 	][
-		print "^/qualify-tags()"
-		?? template
-		probe type? template
-		probe not block? template
+		;print "^/qualify-tags()"
+		;?? template
+		;probe type? template
+		;probe not block? template
 		
-		rval: any [
+		;rval:
+		 any [
 			not block? template ; given filter isn't active
 			all [
 				; at this point we know template is a block
@@ -1483,9 +1976,8 @@ SLiM: context [
 				not empty? intersect template tags
 			]
 		]
-		?? rval
-		
-		rval
+		;?? rval
+		;rval
 	]
 
 	;--------------------------
@@ -1499,7 +1991,7 @@ SLiM: context [
 	;
 	; tests:    
 	;--------------------------
-	print?: func [
+	print?: funcl [
 		always [logic! none!]
 		tags [block! none!] "A block of tags to compare to currently active ones.  None for all tags."
 	][
@@ -1534,7 +2026,7 @@ SLiM: context [
 	;
 	; tests:    
 	;--------------------------
-	log?: func [
+	log?: funcl [
 		always
 		tags [block! none!] "A block of tags to compare to currently active ones."
 	][
@@ -1674,21 +2166,25 @@ SLiM: context [
 		tabs: rejoin vtabs
 		;?? tabs
 		
-		datetime: rejoin ["" now/year "-" zpad now/month 2 "-"  zpad now/day 2 " " pad/with now/time/precise 12 #"0"  " - "]
+		datetime: rejoin ["" now/year "-" zpad now/month 2 "-"  zpad now/day 2 " " pad/with now/time/precise 12 #"0"  "  "]
 		;?? datetime
 		
-		line: rejoin [ datetime tabs data-to-vstring data ]
-		line: replace/all line "^/" rejoin [ "^/" datetime tabs ]
-		;?? line
 		
 		if log? always tags [
-			write/append vlogfile rejoin [line "^/"] ; we must add the trailing new-line
+			tprefix: either vlog-time? [ datetime ][""]
+			logline: rejoin [ tprefix tabs data-to-vstring data ]
+			logline: replace/all logline "^/" rejoin [ "^/" tprefix tabs ]
+			write/append vlogfile rejoin [logline "^/"] ; we must add the trailing new-line
 		]
 		
-		?: print? always tags
+		;?: print? always tags
 		;?? ?
 		
 		if print? always tags [
+			tprefix: either vprint-time? [ datetime][""]
+			line: rejoin [ tprefix tabs data-to-vstring data ]
+			line: replace/all line "^/" rejoin [ "^/" tprefix tabs ]
+			;?? line
 			either vconsole [
 				append/only vconsole rejoin [line "^/"]
 			][
@@ -1705,7 +2201,8 @@ SLiM: context [
 	; returns:  unset!
 	;
 	; notes:    - prints to console (if enabled) AND writes to log (if enabled)
-	;           - DOES NOT CAUSE NEWLINE, NOR DOES IT PRINT INDENTS!
+	;           - DOES NOT CAUSE NEWLINE, NOR DOES IT PRINT INDENTS or time prefixes.!
+	;           - WILL indent multiline data
 	;
 	; tests:    
 	;--------------------------
@@ -1809,7 +2306,7 @@ SLiM: context [
 	; notes:    -if there are currently negative tags and we do not call /tags, they stay in setup.
 	;            and this only stops ALL verbose
 	;--------------------------
-	voff: func [
+	voff: funcl [
 		/tags ignore-tags [block! none!] "will specifically ignore these tags.  Trace all the rest"
 		/only "do not manipulate positive filter"
 		/extern verbose?
@@ -1841,7 +2338,7 @@ SLiM: context [
 	;
 	; tests:    
 	;--------------------------
-	vlog-off: func [
+	vlog-off: funcl [
 		/tags ignore-tags [block! none!] "will specifically ignore these tags.  Trace all the rest"
 		/only "do not manipulate positive filter"
 		/extern vlogging?
@@ -1890,25 +2387,29 @@ SLiM: context [
 	]
 
 	;----------------
-	;-    vindent()
-	; simply prins the leading indents 
+	;-     vindent()
+	; simply prins the leading indents right there
 	;----
-	vindent: func [
+	;--------------------------
+	;-     vindent()
+	;--------------------------
+	; purpose:  simply prins the leading indents right there
+	;
+	; notes:    stll obeys the verbose setup
+	;
+	; returns:  unset!
+	;--------------------------
+	vindent: funcl [
 		/always
-		/tags ftags
+		/tags taglist [block!]
 	][
-		if print? always ftags [
-			prin vtabs
-		]
-		if log? always ftags [
-			indented-prin/log to-string ltabs in out
-		]
+		indented-prin (rejoin vtabs) always taglist
 	]
 	
 	;--------------------------
 	;-     vin()
 	;--------------------------
-	; purpose:  
+	; purpose:  push in indent and 
 	;
 	; inputs:   
 	;
@@ -1920,185 +2421,211 @@ SLiM: context [
 	;
 	; tests:    
 	;--------------------------
-	vin: func [
-		txt
+	vin: funcl [
+		"labeled indent for vprint"
+		label "text for your indent, is followed by a '[' character"
 		/always
-		/tags taglist [block!]
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
 	][
-		indented-print rejoin [txt " ["] always taglist
+		indented-print rejoin ["" label " ["] always taglist
 		push-in
 	]
 	
-	;----------------
-	;-    vout()
-	;----
-	vout: func [
+	;--------------------------
+	;-     vout()
+	;--------------------------
+	; purpose:  pull out and show outdent
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	vout: funcl [
+		"outdent vprinting, adding a ']' character and newline to output."
 		/always
-		/tags ftags
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
 		/return rdata ; use the supplied data as our return data, allows vout to be placed at end of a 
 					  ; function and print itself outside inner content event if return value is a function.
 	][
-		if print? always ftags [
-			indented-print "]" no yes
-		]
-		
-		if log? always ftags [
-			indented-print/log "]" no yes
-		]
-		
+	
+		pull-out 
+		indented-print "]" always taglist
+			
 		; this mimics print's functionality where not supplying return value will return unset!, causing an error in a func which expects a return value.
 		either return [
 			rdata
 		][] ; generates an unset! value (a faster way to do an 'EXIT).
 	]
 	
-	;----------------
-	;-    vprint()
-	;----
-	vprint: func [
+	;--------------------------
+	;-     vprint()
+	;--------------------------
+	; purpose:  verbose controled printing.
+	;
+	; inputs:   data which is rejoined
+	;
+	; returns:  unset! (just like print)
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	vprint: funcl [
 		"verbose print"
-		data
+		data "can be any data which is formed and joined. will be indented to current depth, even mutliline data."
 		/in "indents after printing"
 		/out "un indents before printing. Use none so that nothing is printed"
 		/always "always print, even if verbose is off"
-		/tags ftags "only effective if one of the specified tags exist in vtags"
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
 	][
 		;print ["--------------->" data]
-		if print? always ftags [
-			indented-print data in out
-		]
-		if log? always ftags [
-			indented-print/log data in out
-		]
+		indented-print :data always taglist
 	]
 	
 	
 	;----------------
-	;-    vprin()
+	;-     vprin()
 	;----
-	vprin: func [
-		"verbose print"
-		data
-		/in "causes indentation but doesn't prefix the print with the tabs"
+	vprin: funcl [
+		"verbose prin"
+		data "data to print out, if verbosity is enabled, it will not cause a newline on single line data and will not indent the first line of any data."
 		/always "always print, even if verbose is off"
-		/tags ftags "only effective if one of the specified tags exist in vtags"
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
 	][
-		either in [
-			if print? always ftags [
-				;probe rejoin ["=================>" data]
-				indented-prin/in data
-			]
-			if log? always ftags [
-				indented-prin/log/in data
-			]
-		][
-			if print? always ftags [
-				;probe rejoin ["=================>" data]
-				indented-prin data
-			]
-			if log? always ftags [
-				indented-prin/log data
-			]
-		]
+		indented-prin :data always taglist
 	]
 	
 	
-	;----------------
-	;-    vprobe()
-	;----
-	vprobe: func [
+	;--------------------------
+	;-     vprobe()
+	;--------------------------
+	; purpose:  vprint a molded, raw value instead of pretty formated view of it.
+	;
+	; inputs:   
+	;
+	; returns:  - the input data, untouched.
+	;           - unset! is a special case which is converted to none!
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	vprobe: funcl [
 		"verbose probe"
-		data
-		/in "indents after probing"
-		/out "un indents before probing"
+		data [any-type! unset!] "vprint a molded, raw value instead of pretty formated view of it."
 		/always "always print, even if verbose is off"
-		/tags ftags "only effective if one of the specified tags exist in vtags"
-		/part amount [integer!] "how much object do we want to display, should eventually support block of words"
-		/local line molded?
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
+		/only amount [integer! block!] "how much object do we want to display, integer is a count in bytes of molded value, block is a list of properties within the object to show."
 	][
-		;probe rejoin [">>>>>>>>>>>>" data]
-		unless part [
+		unless amount [
 			amount: 5000
 		]
 		
-		
-		if print? always ftags [
-			;probe rejoin ["++++++++++>" data]
-			switch/default (type?/word :data) [
-				object! [
-					line: rejoin [ mold first data "^/>>>" copy/part mold/all data amount "<<<"]
-				] 
-			][
-				line: mold/all :data ; serialised values are explicit (better probe precision).
-			]
-			
-			molded?: true
-			
-			indented-print line in out  ; part of indented-print
-		]
-				
-		if log? always ftags [
-		
-			unless molded? [
-				switch/default (type?/word :data) [
-					object! [
-						line: rejoin [ mold first data "^/>>>" copy/part mold/all data amount "<<<"]
-					] 
+		switch/default (type?/word :data) [
+			object! [
+				either block? amount [
+					; only print out the values of given word within list.
+					spec: copy []
+					foreach word amount [
+						append spec to-set-word word
+					]
+					append spec none
+					ctx: context spec
+					foreach word amount [
+						set/any in ctx word get/any in data word
+					]
+					line: mold/all ctx
 				][
-					line: mold/all :data ; serialised values are explicit (better probe precision).
+					; we received an integer limit amount
+				    line: mold/all data 
+				    if (length? line) > amount [
+				    	line: rejoin [ copy/part line amount "^/^-...^/]" ]
+				    ]
 				]
 			]
-		
-			;probe rejoin ["++++++++++>" data]
-			indented-print/log line in out  ; part of indented-print
+			unset! [
+				line: "#[unset!]"
+				data: none
+			]
+		][
+			line: mold/all :data ; serialised values are explicit (better probe precision).
 		]
+			
+		indented-print line always taglist  ; part of indented-print
 				
 		:data
 	]
 	
 	
 	;----------------
-	;-    v??()
+	;-     v??()
 	;----
 	v??: funcl [
-		{Prints a variable name followed by its molded value. (for debugging) - (replaces REBOL mezzanine)}
-		'name
+		{Prints a variable name or expression followed by its molded value. (for debugging) - (replaces REBOL mezzanine)}
+		:name [any-type!]
 		/always "always print, even if verbose is off"
-		/tags ftags "only effective if one of the specified tags exist in vtags"
+		/tags taglist [block!] "Assign one or more tags to this trace so it can be selectively filtered by user."
 	][
-		label: switch/default tp: type?/word :name [
+		tp: type?/word :name
+		label: switch/default tp [
 			word! [
-				rejoin [ form name ": " any [attempt [mold/all rval: get* :name ]  rejoin [NAME ": !!! unable to mold value... too large or cyclical"]]]
+				rejoin [ 
+					form name ": " any [
+						attempt [mold/all rval: get* :name ]  
+						rejoin [NAME ": !!! unable to mold value... too large or cyclical"]
+					]
+				]
 			]
 			path! [
-				rejoin [ form :name ": " mold/all rval: do :name ]
+				rejoin [ form :name ": " mold/all rval: do get name ]
 			]
 			block! [
 				blk: reduce :name
 				rval: last blk
-				rejoin [mold/only :name " : "  mold/all/only :blk]
+				rejoin ["" mold :name " : "  mold/all/only :blk]
+			]
+			paren! [
+				set/any 'rval  do :name
+				rejoin ["" mold :name " : "  mold/all/only :rval]
+			]
+			unset! [
+				"unknown : #[unset!]"
 			]
 		][
 			rejoin [ "" tp " : " mold/all rval: :name ]
 		]
-			
-		if print? always ftags [
-			indented-print label false false  ; in out
-		]
-		if log? always ftags [
-			indented-print/log label false false  ; in out
-		]
-			
+		
+		indented-print label always taglist
+		
 		:rval
 	]
 		
 	
-	;----------------
-	;-    vdump()
-	;----
+	;--------------------------
+	;-     vdump()
+	;--------------------------
+	; purpose:  an advanced version of vprobe which supports cyclical datasets and more 
 	;
-	; 
-	;----
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    update to red version
+	;
+	; tests:    
+	;--------------------------
 	vdump: funcl [
 		"prints a block of information about any value (recursive)."
 		data [any-type!]
@@ -2257,10 +2784,10 @@ SLiM: context [
 	;
 	; this is the SAME basic code as the core HELP, but it uses vprinting
 	;----
-	vhelp: func [
+	vhelp: funcl [
 		"Prints information about words and values."
 		'word [any-type!]
-		/local value args item type-name refmode types attrs rtype
+		;/local value args item type-name refmode types attrs rtype
 	][
 		if unset? get*/any 'word [
 			vprint trim/auto {
@@ -2463,15 +2990,15 @@ SLiM: context [
 	
 
 	;--------------------------
-	;-         	vask()
+	;-     vask()
 	;--------------------------
-	; purpose:  
+	; purpose:  only ask user input when versbosity is set.
 	;
 	; inputs:   
 	;
 	; returns:  
 	;
-	; notes:    
+	; notes:    once debugging is done, you generally want this function removed from your code.
 	;
 	; to do:    
 	;
@@ -2487,7 +3014,7 @@ SLiM: context [
 
 
 	;--------------------------
-	;-         	vimport()
+	;-     vimport()
 	;--------------------------
 	; purpose:  imports all vprinting function within global context.
 	;
@@ -2522,18 +3049,239 @@ SLiM: context [
 	]
 
 
+
 	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
-	;-     SLIM LIB LOADING
+	;- SLIM-LOCAL FUNCTIONS
+	;
+	;-----------------------------------------------------------------------------------------------------------
+	;--------------------------
+	;-     filter-extensions()
+	;--------------------------
+	; purpose:  Keep only if a filename matches one of the given extensions
+	;
+	; inputs:   - Extensions can be preceded by dot or not, block of or
+	;			unique file(s)! or string(s)!
+	;			- file can be absolute or relative
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	filter-extensions: funcl [
+		files		[block!] "Block of file!"
+		extensions	[block!] "We expect a correct block of extensions , including dot ex: [%.aaa %.bbb %.ccc]"
+	][
+		;vin "filter-extensions()"
+		
+		; "blockify" extensions if given single value
+		;extensions: compose [(extensions)] ; also copies the extensions block
+		
+		;<MOA>  oops!  exts-cpy doesn't exist yet... we then changed to 'extensions
+;		if any [
+;			file!   = type? exts-cpy
+;			string! = type? exts-cpy
+;		][
+;			exts-cpy: append copy [] exts-cpy
+;		]
+		
+		; Format extensions as %.ext + copy extensions arg
+		
+		;v?? extensions
+		
+		remove-each file files [
+			; Get file extension
+			file-ext: find/last file #"."
+			not find extensions file-ext
+		]
+		
+		;vout/return
+		files
+	]
+	
+	;--------------------------
+	;-     abs-path?()
+	;--------------------------
+	; purpose:  Returns true if the given path is absolute, False if not
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	abs-path?: funcl [
+		path	[file!]
+	][
+		vin "abs-path?()"
+		vout/return
+		either all [
+			0 < length? path ; Because of %""
+			#"/" = first path
+		][true][false]
+		
+	]
+		
+	;-------------------
+	;-     as-tuple()
+	;-------------------
+	; enforces any integer or decimal as a 3 digit tuple value (extra digits are ignored... to facilitate rebol version matching)
+	; now also allows you to truncate the number of digits in a tuple value... usefull to compare major versions,
+	; or removing platform part of rebol version.
+	;----
+	as-tuple: func [
+		value
+		/digits dcount
+		/local yval i
+	][
+		value: switch type?/word value [
+			none! [0.0.0]
+			integer! [to-tuple reduce [value 0 0]]
+			float! [
+				yVal: to-string remainder value 1
+				either (length? yVal) > 2 [
+					yVal: to-integer at yVal 3
+				][
+					yVal: 0
+				]
+				
+				to-tuple reduce [(to-integer value)   yVal   0 ]
+			]
+			tuple! [
+				if digits [
+					if (length? value) > dcount [
+						digits: copy "" ; just reusing mem space... ugly
+						repeat i dcount [
+							append digits reduce [to-string pick value i "."]
+						]
+						digits: head remove back tail digits
+						value: to-tuple digits
+					]
+				]
+				value
+			]
+		]
+		value
+	]
+
+
+	;--------------------------
+	;-     cleanup-extensions()
+	;--------------------------
+	; purpose:  Uniformize extensions block to file! preceded by a dot e.g. %.red
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    Returns a copy of the input
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	cleanup-extensions: funcl [
+		extensions	[block!]	{A block of extensions e.g. ["red" %.txt ...]}
+	][
+		vin "cleanup-extensions()"
+		;extensions: copy extensions
+		
+		; Add preceding dots if not already there
+		foreach ext extensions [
+			unless #"." = first ext [insert ext #"."]
+		]
+		
+		; Convert extensions to file!
+		forall extensions [change extensions as file! first extensions]
+		
+		vout/return
+		extensions
+	]
+
+	;-                                                                                                       .
+	;-----------------------------------------------------------------------------------------------------------
+	;
+	;- SLIM LIB LOADING
 	;
 	;-----------------------------------------------------------------------------------------------------------
 
+
+
+	;--------------------------
+	;-     import()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	import: funcl [
+		library [word!]
+		version [float! tuple! integer! word! none!] "be careful, none! value may also be supplied as 'none"
+	][
+		vin "import()"
+	
+		
+	
+		vout
+	]
+
+
+	;--------------------------
+	;-     open()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+	; notes:    
+	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	open: funcl [
+		lib-name [word!]
+		version [float! tuple! integer! word! none!]
+		/from path [file!] "must a DIRECTORY path"
+	][
+		vin "open()"
+		if path [
+			to-error  "slim/open()  /from path : not implemented yet" 
+		]
+		
+		unless catalog/library-index [
+			catalog/update-index
+		]
+		
+		
+		
+		vout
+		
+		none
+	]
 
 	;----------------
 	;-    open()
 	;----
-	OPEN: funcl [
+	-OPEN: funcl [
 		"Open a library module.  If it is already loaded from disk, then it returns the memory cached version instead."
 		lib-name [word! string! file!] "The name of the library module you wish to open.  This is the name of the file on disk.  Also, the name in its header, must match. when using a direct file type, lib name is irrelevant, but version must still be qualified."
 		version [integer! float! tuple! none! word!] "minimal version of the library which you need, all versions should be backwards compatible."
@@ -2552,9 +3300,7 @@ SLiM: context [
 		; /expose exp-words [word! block!] "expose words from the lib after its loaded and bound, be mindfull that words are either local or bound to local context, if they have been declared before the call to open."
 		;-----------------
 	][
-	
 		version-mode: none
-	
 		;---
 		; numbered version docs
 		;
@@ -2563,8 +3309,6 @@ SLiM: context [
 		; =1.0.0 exactly 1.0.0 and nothing else
 		;  1.0.0 must be ANY version at or beyond 1.0.0 AND has to be the SAME major version (so anything at or beyond 2.0.0 will fail)
 		;---
-		
-		
 	
 		;--------------------------
 		; Standardize arguments:
@@ -3353,6 +4097,8 @@ any library pointing to the old version still points to it.
 	;-    application-path()
 	;
 	; notes:  this is a self-modifying function, which will replace itself with a static file! path.
+	;
+	; todo:   we will replace this function once the system/script/... object is fully updated by Red's back-end.
 	;-----------------
 	application-path: funcl [/extern application-path][
 		vin "application-path()"
@@ -3569,47 +4315,6 @@ any library pointing to the old version still points to it.
 	]
 	
 	
-	;-------------------
-	;-    as-tuple()
-	;-------------------
-	; enforces any integer or decimal as a 3 digit tuple value (extra digits are ignored... to facilitate rebol version matching)
-	; now also allows you to truncate the number of digits in a tuple value... usefull to compare major versions,
-	; or removing platform part of rebol version.
-	;----
-	as-tuple: func [
-		value
-		/digits dcount
-		/local yval i
-	][
-		value: switch type?/word value [
-			none! [0.0.0]
-			integer! [to-tuple reduce [value 0 0]]
-			float! [
-				yVal: to-string remainder value 1
-				either (length? yVal) > 2 [
-					yVal: to-integer at yVal 3
-				][
-					yVal: 0
-				]
-				
-				to-tuple reduce [(to-integer value)   yVal   0 ]
-			]
-			tuple! [
-				if digits [
-					if (length? value) > dcount [
-						digits: copy "" ; just reusing mem space... ugly
-						repeat i dcount [
-							append digits reduce [to-string pick value i "."]
-						]
-						digits: head remove back tail digits
-						value: to-tuple digits
-					]
-				]
-				value
-			]
-		]
-		value
-	]
 	
 	
 	;----------------
@@ -3848,11 +4553,11 @@ any library pointing to the old version still points to it.
 	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
-	;-     CATALOG MANAGEMENT
+	;- CATALOG MANAGEMENT
 	;
 	; Slim packages can contain a %.catalog.red file that is used to get the package
 	; portrait in one read. This file contains a loadable block formatted as
-	;	[ lib-name [version path version path ...] lib-name [...] ... ]
+	;	[ lib-name [version path  version path ...] lib-name [...] ... ]
 	; The paths are relative to the package directory but no recursive scanning is 
 	; executed so, in the catalogs, they will always be the name of the library file.
 	;
@@ -3863,28 +4568,28 @@ any library pointing to the old version still points to it.
 	; FUNCTIONS
 	;
 	;	build-catalog(package-dir):
-	;		This function takes the directory absolute path of a package, scan it to find
-	;		all the slim libraries it contains. These files are only those that have a
+	;		This function takes the absolute directory path of a package, scan it to find
+	;		all the slim libraries it contains. We only consider those that have a
 	;		slim-name in their header and that are compatible with Red-Slim (defined in
 	;		default-lib-extensions)
 	;		- Each version of a library will only have one path. If there is more than one
-	;			file that is tagged with a given version for a given library, only the first
-	;			one will be added to the catalog.
+	;			file that is tagged with a given version for a given library, only one is kept
+	;			which the closest to a an explicitely red-version of a slim library.
 	;
 	;	get-catalog(package-dir):
-	;		This function takes the directory absolute path of a package and tries to load
+	;		This function takes the absolute directory path of a package and tries to load
 	;		its catalog (%.catalog.red). If it fails, it calls the 'build-catalog() function
 	;		to generate the catalog in-memory for the given package.
 	;		- This function convert the relative paths found in catalogs to their absolute 
-	;			form
+	;		  form 
 	;
 	;	update-catalog(package-dir):
-	;		This function takes the directory absolute path of a package, builds a catalog
+	;		This function takes the absolute directory path of a package, builds a catalog
 	;		block and write it to the .catalog.red file. If a file is already present, it is
 	;		overwritten.
 	;
 	;	index-catalog(package-dir):
-	;		This function takes the directory absolute path of a package and loads its catalog
+	;		This function takes the absolute directory path of a package and loads its catalog
 	;		in the library-index. If a library is already indexed, it will look for the absent
 	;		versions (i.e. the versions that are in the package-dir that are not in the indexed
 	;		libraries for each library) and only add these.
@@ -3940,656 +4645,536 @@ any library pointing to the old version still points to it.
 	;		could write it because we will generate it at this moment
 	;-----------------------------------------------------------------------------------------------------------
 	
-	;--------------------------
-	;-         ctlg-filename:
-	;
-	;--------------------------
-	ctlg-filename: %.catalog
+	
 	
 	;--------------------------
-	;-         get-header()
+	;-     catalog: [...]
+	; 
 	;--------------------------
-	; purpose:  Returns header object of a Rebol/Red file
-	;
-	; inputs:   Absolute path of the file
-	;
-	; returns:  [file-libtype, header] object if present, else -> none
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	get-header: funcl [
-		file-path	[file!]
-		libs-spec	[block!]	"[ext libtype ext libtype ...]"
-	][
-		vin "get-header()"
-		
-		header: none
-		file-libtype: none
-		
-		if all [
-			not dir? file-path
-			exists? file-path
-		][
-			script: read file-path
-			
-			libtypes: extract/index libs-spec 2 2
-			
-			; Look if the first word of the file is one of our lib types
-			foreach libtype libtypes [
-				if (to-string libtype) = (copy/part script length? to-string libtype) [
-					; If so, load the header
-					file-libtype: libtype
-					header: construct second load script
-					break
-				]
-			]
-			
-			script: none ;erase script from RAM
-		]
-		
-		vout/return
-		either file-libtype [reduce [file-libtype header]][none]
-	]
-	
-	;--------------------------
-	;-         uniform-exts()
-	;--------------------------
-	; purpose:  Uniformize extensions block to file! preceded by a dot e.g. %.red
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    Returns a copy of the input
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	uniform-exts: funcl [
-		extensions	[block!]	{A block of extensions e.g. ["red" "r" ...]}
-	][
-		vin "uniform-exts()"
-		exts-cpy: copy extensions
-		
-		; Add preceding dots if not already there
-		foreach ext exts-cpy [
-			unless #"." = first ext [insert ext #"."]
-		]
-		
-		; Convert extensions to file!
-		forall exts-cpy [change exts-cpy to-file first exts-cpy]	
-		
-		vout/return
-		exts-cpy
-	]
-	
-	;--------------------------
-	;-         filter-extensions()
-	;--------------------------
-	; purpose:  Keep only if a filename matches one of the given extensions
-	;
-	; inputs:   - Extensions can be preceded by dot or not, block of or
-	;			unique file(s)! or string(s)!
-	;			- file can be absolute or relative
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	filter-extensions: funcl [
-		files		[block!]				"Block of file!"
-		extensions	[file! string! block!]
-	][
-		vin "filter-extensions()"
-		
-		; "blockify" extensions if given single value
-		if any [
-			file!   = type? exts-cpy
-			string! = type? exts-cpy
-		][
-			exts-cpy: append copy [] exts-cpy
-		]
-		
-		; Format extensions as %.ext + copy extensions arg
-		exts-cpy: uniform-exts extensions
-		
-		remove-each file files [
-			; Get file extension
-			file-ext: find/last file #"."
-			not find exts-cpy file-ext
-		]
-		
-		vout/return
-		files
-	]
-	
-	;--------------------------
-	;-         abs-path?()
-	;--------------------------
-	; purpose:  Returns true if the given path is absolute, False if not
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	abs-path?: funcl [
-		path	[file!]
-	][
-		vin "abs-path?()"
-		vout/return
-		either all [
-			0 < length? path ; Because of %""
-			#"/" = first path
-		][true][false]
-		
-	]
-	
-	;--------------------------
-	;-         preferred-libtype()
-	;--------------------------
-	; purpose:  
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	preferred-libtype: funcl [
-		a b libtypes
-	][
-		i-a: index? find libtypes a
-		i-b: index? find libtypes b
-		(index? find libtypes a ) <= (index? find libtypes b )
-	]
-	
-	;--------------------------
-	;-         update-index()
-	;--------------------------
-	; purpose:  using all search-paths() read every catalogue file
-	;            you find and add them into the in-memory index
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	update-index: funcl [
-	][
-		vin "update-index()"
-		paths: search-paths 
-		foreach path paths [
-			index-catalog path
-		]
-		vout
-	]
-	
-	;--------------------------
-	;-         update-catalog()
-	;--------------------------
-	; purpose:  updates the disk catalogue file for a package folder
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    will update catalog file on disk.
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	update-catalog: funcl [
-		dir [file!] "A disk directory (usually a package from search-paths() )"
-		/prettify	"Format file with newlines for better human readability"
-	][
-		vin "update-catalog()"
-		if catalog: build-catalog dir [
-			if prettify [
-				foreach [lib-name versions] catalog [
-					new-line versions true
-					second: true
-					forall versions [
-						either second [
-							new-line versions true
-							second: false
-						][second: true]
-					]
-				]
-			]
-			write rejoin [dirize dir ctlg-filename] mold/all catalog
-		]
-		vout
-	]
-	
-	;--------------------------
-	;-         get-lib-info()
-	;--------------------------
-	; purpose:  
-	;
-	; inputs:   
-	;
-	; returns:  [lib-name lib-version lib-type] or none on failure
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	get-lib-info: funcl [
-		abs-file-path	[file!]	"ABSOLUTE path of a library"
-		libs-specs		[block!]
-	][
-		vin "get-lib-info()"
-		lib-version: lib-name: lib-type: file-header: none
-		
-		; Has current file a header?
-		set [lib-type file-header] get-header abs-file-path libs-specs
-		if file-header [
-			; To be a library, header must have field 'slim-name
-			if lib-name: select file-header 'slim-name [
-				lib-name: file-header/slim-name
-				lib-version: select file-header 'version
-				; If no version in header, we infer version 1
-				unless lib-version [lib-version: 1.0.0]
-			]
-		]
-		
-		vout/return
-		either lib-name [reduce [lib-name lib-version lib-type]][none]
-	]
-	
-	;--------------------------
-	;-         sort-filter-versions()
-	;--------------------------
-	; purpose:  
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	sort-filter-versions: funcl [
-		versions	[block!]
-		libtypes	[block!]
-	][
-		vin "sort-filter-versions()"
-		; Sorting
-		sort/skip/all/compare versions 3 func [a b] [
-			either a/1 = b/1 [
-				preferred-libtype a/3 b/3 libtypes
-			][
-				a/1 > b/1 
-			]
-		]
-		
-		; Filtering
-		until [
-			version: versions/1 
-			;libname: libs/2
-			;libtype: libs/3
-
-			either find/reverse versions version [
-				remove/part versions 3
-			][
-				versions: skip versions 3
-			]
-			
-			tail? versions 
-		]
-		
-		versions: head versions
-
-		vout/return
-		versions
-	]
-	
-	;--------------------------
-	;-         build-catalog()
-	;--------------------------
-	; purpose:  creates a catalog dataset given a package directory
-	;
-	; inputs:   
-	;
-	; returns:  a catalog dataset or none if the given 'dir is not a directory
-	;
-	; notes:    does not WRITE anything to disk.
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	build-catalog: funcl [
-		dir [file!]
-	][
-		vin "build-catalog()"
-		
-		catalog: none
-		
-		libtypes: extract/index default-lib-extensions 2 2
-		; Format extensions list as file! preceded by dot
-		extensions: uniform-exts extract default-lib-extensions 2
-		
-		; <TEMP><TODO> Remove rebol because encoding is not supported yet
-		if r-lib: find libtypes 'rebol [remove r-lib]
-		if r-ext: find extensions %.r [remove r-ext]
-		
-		if all [
-			dir? dir
-			exists? dir
-		][
-			; [ libname [version path libtype version path libtype... ] ... ]
-			catalog: copy []
-			
-			; Scan all files in library directory
-			files-in-dir: read dir
-			
-			; Keep only supported files 
-			filtered-files: filter-extensions files-in-dir extensions
-			
-			; Accumulate libraries and their versions in catalog
-			foreach file-name filtered-files [
-				abs-file-path: rejoin [dir file-name]
-				; If file is a slim-library
-				if (set [lib-name lib-version lib-type] get-lib-info abs-file-path default-lib-extensions) [
-					either lib-versions: select catalog lib-name [
-						; Lib already in catalog -> Add new version
-						repend lib-versions [lib-version file-name lib-type]
-					][
-						; Lib absent from catalog -> Add lib
-						append catalog compose/deep [(lib-name) [(lib-version) (file-name) (lib-type)]]
-					]
-				]
-			]
-			
-			[lib1 [1.1.1 %... libtypt]]
-			; Sort/filter versions to get only one version per library with preferred libtype
-			foreach [lib-name versions] catalog [
-				sort-filter-versions versions libtypes ; The catalog versions is modified
-			]
-		]
-		
-		vout/return catalog
-	]
-	
-	;--------------------------
-	;-         get-catalog()
-	;--------------------------
-	; purpose:  returns a catalog for a given package
-	;
-	; inputs:   
-	;
-	; returns:  catalogue format data or none on error
-	;
-	; notes:    - there may be no physical catalog on disk!
-	;             in such a case we read all files and generate one run-time.
-	;			- The paths of the libraries are absolute
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	get-catalog: funcl [
-		dir [file!] "ABSOLUTE path of library"
-	][
-		vin "get-catalog()"
-		
-		unless abs-path? dir [
-			do make error! rejoin ["get-catalog(): dir must be absolute! Received " mold/all dir]
-		]
-		
-		result: none
-		if all [
-			dir? dir
-			exists? dir
-		][
-			ctlg-path: rejoin [dir ctlg-filename]
-			either exists? ctlg-path [
-				result: load ctlg-path
-			][
-				result: build-catalog dir
-			]
-			
-			; Modify the catalog paths to be absolute
-			foreach [libname versions] result [
-				forall versions [
-					if (file! = type? first versions) [
-						insert first versions dir
-					]
-				]
-			]
-		]
-		
-		vout/return
-		result
-	]
-	
-	;--------------------------
-	;-         index-catalog()
-	;--------------------------
-	; purpose:  adds a catalog file to in-memory index
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    <SMC> I modified the signature of this function (took a catalog before)
-	;	because there is a confusion between absolute and relative paths. In the catalog
-	;	files, we want to use relative paths for portability (i.e. possibility of moving
-	;	packages around without regenerating catalog => better for sharing). In the 
-	;	memory index, we want to use absolute paths because a library can have versions
-	;	coming from different packages. Because of that, we want to force the update
-	;	of the index to use the get-catalog function that translates the relative paths
-	;	to their absolute version. So, instead of giving a catalog object (for which we
-	;	can not enforce the use of absolute paths) to this function, we give it a package
-	;	path and the function will have the job of calling get-catalog() that does the
-	;	conversion.
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	index-catalog: funcl [
-		dir		[file!]			"ABSOLUTE path of the package"
-		/extern library-index
-	][
-		vin "index-catalog()"
-		; Initialize library-index if not already done
-		unless library-index [library-index: copy []]
-		
-		libtypes: extract/index default-lib-extensions 2 2
-		; <TEMP><TODO> Remove rebol because encoding is not supported yet
-		if r-lib: find libtypes 'rebol [remove r-lib]
-		
-		catalog: get-catalog dir
-		if catalog [
-			foreach [libname cat-versions] catalog [
-				either index-versions: select library-index libname [
-					append index-versions cat-versions
-					sort-filter-versions index-versions libtypes ; index-versions modified inplace
-				][
-					; Lib is not in index
-					repend library-index [libname cat-versions]
-				]
-			]
-		]
-		vout
-	]
-
-
-	;--------------------------
-	;-         find-indexed-path()
-	;--------------------------
-	; purpose:  searches the memory index for a versioned library.
-	;
-	; inputs:   
-	;
-	; returns:  absolute paths of a satisfying lib-name version or none
-	;
-	; notes:    
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	find-indexed-path: funcl [
-		lib-name [word!]
-		version [tuple!]
-		mode [word!]
-		/extern library-index
-	][
-		vin "find-indexed-path()"
-		result-path: none
-		
-		versions: select library-index lib-name
-		if versions [
-			; Take first version in list that satisfy
-			;	Based on the assumption they are ordered from newer to older
-			foreach [ref-version path libtype] versions [
-				if qualify-version version mode ref-version [
-					result-path: path
-				]
-			]
-		]
-		vout/return
-		result-path
-	]
-	
-	;--------------------------
-	;-         reset-lib-index()
-	;--------------------------
-	; purpose:  Reset library index
-	;
-	; inputs:   
-	;
-	; returns:  
-	;
-	; notes:    As 2019-03-14, simply set to none but it might be more
-	;	complex in the future so we abstract in a function
-	;
-	; to do:    
-	;
-	; tests:    
-	;--------------------------
-	reset-lib-index: funcl [
-		/extern library-index
-	][
-		vin "reset-lib-index()"
+	catalog: context [
+		;--------------------------
+		;-         library-index:
+		;
+		; in-memory version of all accumulated package catalogs.
+		;
+		; will also usually include a run-time generated index of packages
+		; without an explicit catalog file (like the application/libs/ path).
+		; [libname [1.0.0 Slim %/C/dev/file.r 1.0.3 Red %...] libname [...] ...]
+		;--------------------------
 		library-index: none
-		vout
-	]
-		
 	
+		;--------------------------
+		;-         filename:
+		; 
+		; each package may store its own catalog file, 
+		; this specifies the filename to use
+		;--------------------------
+		filename: %.catalog
 		
-	;;----------------
-	;;-    encompass()
-	;;----
-	;; deprecated functionality, we now have APPLY, as part of the official R2 distro.
-	;encompass: function [
-	;	func-name [word!]
-	;	/args opt-args [block!]
-	;	/pre pre-process
-	;	/post post-process
-	;	/silent
-	;][
-	;	blk dt func-args func-ptr func-body last-ref item params-blk refinements word arguments args-blk
-	;][
-	;	func-ptr: get in system/contexts/user func-name
-	;	if not any-function? :func-ptr [vprint/always "  error... funcptr is not a function value or word" return none]
-	;	arguments: third :func-ptr 
-	;	func-args: copy []
-	;	last-ref: none
-	;	args-blk: copy compose [([('system)])([('words)])(to paren! to-lit-word func-name)]
-	;	params-blk: copy [] ; stores all info about the params
-	;	FOREACH item arguments [
-	;		SWITCH/default TYPE?/word item [
-	;			block! [
-	;				blk: copy []
-	;				FOREACH dt item [
-	;					word: MOLD dt
-	;					APPEND blk TO-WORD word
-	;				]
-	;				APPEND/only func-args blk
-	;			]
-	;			refinement! [
-	;				last-ref: item
-	;				if last-ref <> /local [
-	;					APPEND func-args item
-	;					append/only args-blk to paren! compose/deep [either (to-word item) [(to-lit-word item)][]]
-	;				]
-	;			]
-	;			word! [
-	;				either last-ref [
-	;					if last-ref <> /local [
-	;						append/only params-blk to paren! copy compose/deep [either (to-word last-ref) [(item)][]]
-	;						append func-args item
-	;					]
-	;				][
-	;					append/only params-blk to paren! item
-	;					append func-args item
-	;				]
-	;			]
-	;		][append/only func-args item]
-	;	]
-	;	
-	;	blk: append append/only copy [] to paren! compose/deep [ to-path compose [(args-blk)]] params-blk
-	;	func-body: append copy [] compose [
-	;		(either pre [pre-process][])
-	;		enclosed-func: compose (append/only copy [] blk)
-	;		(either silent [[
-	;			if error? (set/any 'encompass-err try [do enclosed-func]) [return :encompass-err]]
-	;		][
-	;			[if error? (set/any 'encompass-err try [set/any 'rval do enclosed-func]) [return :encompass-err]]
-	;		])
-	;		
-	;		(either post [post-process][])
-	;		return rval
-	;	]
-	;	;print "------------ slim/encompass debug --------------"
-	;	;probe func-body
-	;	;print "------------------------------------------------^/^/"
-	;	if args [
-	;		refinements: find func-args refinement!
-	;		either refinements[
-	;			func-args: refinements
-	;		][
-	;			func-args: tail func-args
-	;		]
-	;		insert func-args opt-args
-	;	]
-	;	append func-args [/rval /encompass-err]
-	;	func-args: head func-args
-	;	return func func-args func-body
-	;]
+		;--------------------------
+		;-         defaults:
+		;
+		; All the default configurations which can be modified by the .catalogcfg file
+		;--------------------------
+		defaults: context [
+			;--------------------------
+			;-             auto-update:
+			; 
+			; Do we automatically update the catalog cache file when a library is changed?
+			;--------------------------
+			auto-update?: true
+			
+			;--------------------------
+			;-             cache?:
+			;
+			; Do we cache the catalog whenever it's generated?
+			;--------------------------
+			cache?: true
+			
+			;--------------------------
+			;-             ignore-dir?:
+			;
+			; Do we ignore a folder?
+			;
+			; This is obviously always false here, but is included so it can be used in the config file.
+			;--------------------------
+			ignore-dir?: false
+		]
+
+		;--------------------------
+		;-         preferred-libtype()
+		;--------------------------
+		; purpose:  note that we reverse sort the list, so that we get the most important FIRST
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		preferred-libtype: funcl [
+			a b libtypes
+		][
+			i-a: index? find libtypes a
+			i-b: index? find libtypes b
+			(index? find libtypes a ) <= (index? find libtypes b )
+		]
+		
+		;--------------------------
+		;-         update-index()
+		;--------------------------
+		; purpose:  using all search-paths() read every catalog file
+		;            you find and add them into the in-memory index
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		update-index: funcl [
+		][
+			vin "update-index()"
+			paths: search-paths
+			v?? paths
+			
+			;paths: [%/S/dev/projects/git/slim-libs-red/slim/]
+			
+			foreach path paths [
+				index-catalog path
+			]
+			vprobe catalog/library-index
+			v?? ( (length? catalog/library-index ) / 2 )
+			vout
+		]
+		
+		;--------------------------
+		;-         update-catalog()
+		;--------------------------
+		; purpose:  updates the disk catalog file for a package folder
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    will update catalog file on disk.
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		update-catalog: funcl [
+			dir [file!] "A disk directory (usually a package from search-paths() )"
+			/prettify	"Format file with newlines for better human readability"
+		][
+			vin "update-catalog()"
+			if catalog: build-catalog dir [
+				if prettify [
+					foreach [lib-name versions] catalog [
+						new-line versions true
+						second: true
+						forall versions [
+							either second [
+								new-line versions true
+								second: false
+							][second: true]
+						]
+					]
+				]
+				write rejoin [dirize dir filename] mold/all catalog
+			]
+			vout
+		]
+		
+		;--------------------------
+		;-         get-lib-info()
+		;--------------------------
+		; purpose:  
+		;
+		; inputs:   
+		;
+		; returns:  [lib-name lib-version lib-type] or none on failure
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		get-lib-info: funcl [
+			abs-file-path	[file!]	"ABSOLUTE path of a library"
+		][
+			;vin "get-lib-info()"
+			lib-version: lib-name: lib-type: file-header: none
+			
+			; Has current file a header?
+			;set [lib-type file-header] get-header abs-file-path libs-specs
+			header: load-header/type abs-file-path lib-type
+			;v?? header
+			if header [
+				; To be a library, header must have field 'slim-name
+				if lib-name: select header 'slim-name [
+					lib-name: header/slim-name
+					lib-version: select header 'version
+					; If no version in header, we infer prototype version
+					unless lib-version [lib-version: 0.0.1]
+				]
+			]
+			
+			;vout/return
+			either lib-name [
+				reduce [lib-name lib-version lib-type]
+			][none]
+		]
+		
+		;--------------------------
+		;-         sort-filter-versions()
+		;--------------------------
+		; purpose:  
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    - we reverse sort the versions, so we have the largest version first
+		;           - we sort the given lib types in given order (when version is equal)
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		sort-filter-versions: funcl [
+			versions	[block!]
+			libtypes	[block!]
+		][
+			if (length? versions) > 3 [
+				vin "sort-filter-versions()"
+				;v?? versions
+				; Sorting
+				sort/skip/all/compare versions 3 func [a b] [
+					;?? a 
+					;?? b
+					either a/1 = b/1 [
+						preferred-libtype a/2 b/2 libtypes
+					][
+						a/1 > b/1 
+					]
+				]
+				
+				;------------------
+				; Filtering  <MOA> removed filtering, its a sign of an error.
+;				until [
+;					version: versions/1 
+;					;libtype: libs/2
+;					;libname: libs/3
+;					either find/reverse versions version [
+;						remove/part versions 3
+;					][
+;						versions: skip versions 3
+;					]
+;					tail? versions 
+;				]
+				versions: head versions
+				vout
+			]
+			versions
+		]
+		
+		;--------------------------
+		;-         build-catalog()
+		;--------------------------
+		; purpose:  creates a catalog dataset given a package directory
+		;
+		; inputs:   
+		;
+		; returns:  a catalog dataset or none if the given 'dir is not a directory
+		;
+		; notes:    does not WRITE anything to disk.
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		build-catalog: funcl [
+			dir [file!]
+		][
+			vin "build-catalog()"
+			v?? dir
+			catalog: none
+			
+			libtypes: extract/index default-lib-extensions 2 2
+			; Format extensions list as file! preceded by dot
+			extensions: cleanup-extensions extract default-lib-extensions 2
+			
+			if all [
+				dir? dir
+				exists? dir
+			][
+				; [ libname [version path libtype    version path libtype... ] ... ]
+				catalog: copy []
+				
+				; Scan all files in library directory
+				files: read dir
+				;v?? files
+				
+				; Keep only supported files 
+				;filtered-files: filter-extensions files-in-dir extensions ; <moa> filtered-files and files-in-dir end up being the same block  :-)
+				filter-extensions files extensions
+				;v?? extensions
+				;v?? files
+				
+				; Accumulate libraries and their versions in catalog
+				foreach file-name files [
+					abs-filepath: join dir file-name
+					;v?? abs-filepath
+					
+					; If file is a slim-library
+					if (set [lib-name lib-version lib-type] get-lib-info abs-filepath) [
+						lib-spec: reduce [lib-version  lib-type  abs-filepath] ;<MOA> had to change order to [ version  type  name] since we need to search for [version  type ] together without looking at path.
+						;v?? lib-spec
+						either lib-versions: select catalog lib-name [
+							
+							;-----
+							; check if we have the exact same library version & type claim...
+							; this should be reported, cause it's almost assuredly a problem.
+							lspec: reduce [lib-version lib-type]
+							;v?? lib-versions
+							;v?? lspec
+							either res: find lib-versions lspec [
+								to-error rejoin [
+									"build-catalog(): FOUND TWO EQUIVALENT LIBS in given package catalog.^/"
+									abs-filepath "^/"
+									res/3
+								]
+							][
+								; Lib already in catalog -> Add new version
+								append lib-versions lib-spec
+							]
+						][
+							; Lib absent from catalog -> Add lib
+							append catalog reduce [lib-name lib-spec]
+						]
+					]
+				]
+				
+				;[lib1 [1.1.1 %... libtype]]
+				;v?? catalog
+				; Sort/filter versions to get only one version per library with preferred libtype
+				foreach [lib-name versions] catalog [
+					sort-filter-versions versions libtypes ; The catalog versions is modified
+					new-line/skip versions true 3
+				]
+				new-line/skip catalog true 2
+			]
+			
+			vout/return catalog
+		]
+		
+
+		;--------------------------
+		;-         get-catalog()
+		;--------------------------
+		; purpose:  returns a catalog for a given package
+		;
+		; inputs:   
+		;
+		; returns:  catalog format data or none! 
+		;
+		; notes:    - there may be no physical catalog on disk!
+		;             in such a case we read all files and generate one run-time.
+		;			- The paths of the libraries are absolute
+		;           - an optional file can exist which will alter how this function operates, 
+		;             this file may even prevent it from loading the directory within the catalog entirely 
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		get-catalog: funcl [
+			dir [file!] "ABSOLUTE path of library"
+		][
+			vin "get-catalog()"
+			v?? dir
+			unless abs-path? dir [
+				do make error! rejoin ["get-catalog(): dir must be absolute! Received " mold/all dir]
+			]
+			
+			result: none
+			
+			; we test to see if there's catalog config with an ignore directory folder insode.
+			if exists? cfgfile: join dir %.catalogcfg [
+				cfg: construct load cfgfile
+				ignore-dir: any [
+					; we support two syntax styles (CamelCase or rebol-style)
+					select cfg 'IgnoreDir
+					select cfg 'ignore-dir
+				]
+			]
+			
+			if all [
+				dir? dir
+				exists? dir
+				not ignore-dir
+			][
+				ctlg-path: rejoin [dir filename]
+				either exists? ctlg-path [
+					;---
+					; do we update it?
+					;---
+					
+					
+					
+					
+					result: load ctlg-path
+				][
+					;---
+					; do we 
+					result: build-catalog dir
+				]
+				
+				; Modify the catalog paths to be absolute
+				foreach [libname versions] result [
+					forall versions [
+						if (file! = type? first versions) [
+							insert first versions dir
+						]
+					]
+				]
+			]
+			
+			vout/return
+			result
+		]
+		
+		;--------------------------
+		;-         index-catalog()
+		;--------------------------
+		; purpose:  adds a catalog file to in-memory index
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    <SMC> I modified the signature of this function (took a catalog before)
+		;	because there is a confusion between absolute and relative paths. In the catalog
+		;	files, we want to use relative paths for portability (i.e. possibility of moving
+		;	packages around without regenerating catalog => better for sharing). In the 
+		;	memory index, we want to use absolute paths because a library can have versions
+		;	coming from different packages. Because of that, we want to force the update
+		;	of the index to use the get-catalog function that translates the relative paths
+		;	to their absolute version. So, instead of giving a catalog object (for which we
+		;	can not enforce the use of absolute paths) to this function, we give it a package
+		;	path and the function will have the job of calling get-catalog() that does the
+		;	conversion.
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		index-catalog: funcl [
+			dir		[file!]			"ABSOLUTE path of the package"
+			/extern library-index
+		][
+			vin "index-catalog()"
+			; Initialize library-index if not already done
+			unless library-index [
+				vprint "creating new library index"
+				library-index: copy []
+			]
+			
+			libtypes: extract/index default-lib-extensions 2 2
+			; <TEMP><TODO> Remove rebol because encoding is not supported yet
+			;if r-lib: find libtypes 'rebol [remove r-lib]
+			
+			catalog: get-catalog dir
+			if catalog [
+				foreach [libname cat-versions] catalog [
+					either index-versions: select library-index libname [
+						append index-versions cat-versions
+						sort-filter-versions index-versions libtypes ; index-versions modified inplace
+					][
+						; Lib is not in index
+						repend library-index [libname cat-versions]
+					]
+				]
+			]
+			vout
+		]
+
+
+		;--------------------------
+		;-         find-indexed-path()
+		;--------------------------
+		; purpose:  searches the memory index for a versioned library.
+		;
+		; inputs:   
+		;
+		; returns:  absolute paths of a satisfying lib-name version or none
+		;
+		; notes:    
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		find-indexed-path: funcl [
+			lib-name [word!]
+			version [tuple!]
+			mode [word!]
+			/extern library-index
+		][
+			vin "find-indexed-path()"
+			result-path: none
+			
+			versions: select library-index lib-name
+			if versions [
+				; Take first version in list that satisfy
+				;	Based on the assumption they are ordered from newer to older
+				foreach [ref-version path libtype] versions [
+					if qualify-version version mode ref-version [
+						result-path: path
+					]
+				]
+			]
+			vout/return
+			result-path
+		]
+		
+		;--------------------------
+		;-         reset-lib-index()
+		;--------------------------
+		; purpose:  Reset library index
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    As 2019-03-14, simply set to none but it might be more
+		;	complex in the future so we abstract in a function
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		reset-lib-index: funcl [
+			/extern library-index
+		][
+			vin "reset-lib-index()"
+			clear library-index
+			library-index: none
+			vout
+		]
+			
+	]	
+		
 ]
 
 
@@ -4730,6 +5315,8 @@ context [
 
 ]
 
+
+; when slim starts, we attempt to load the catalogs
 
 ;----------
 ; Always return SLIM itself, necessary since we added the debug FUNC above
