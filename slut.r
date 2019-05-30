@@ -147,6 +147,7 @@ slim/register [
 	slim/open/expose 'utils-series none [ count contains? ]
 
 	
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
 	;- GLOBALS
@@ -257,6 +258,7 @@ slim/register [
 	
 	
 	
+	;-                                                                                                       .
 	;-----------------------------------------------------------------------------------------------------------
 	;
 	;- CLASSES
@@ -1561,12 +1563,15 @@ slim/register [
 			
 			
 			if current-file  <> (current-file: select test/meta 'file) [
+				blk-ptr: tail summary/report
 				append summary/report reduce [
 					'-------------------------
 					'- current-file 
-					'-------------------------
+					'------------------------- 
 				]
+				new-line blk-ptr true
 			]
+			
 			
 			;?? current-file
 			;ask ".."
