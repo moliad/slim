@@ -2,8 +2,8 @@ rebol [
 	; -- Core Header attributes --
 	title: "SLIM | Application Configuration system"
 	file: %configurator.r
-	version: 1.0.4
-	date: 2018-10-12
+	version: 1.0.5
+	date: 2019-06-11
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Easy, Safe, Extensible, Auto-documenting, File-based, configuration management.}
 	web: http://www.revault.org/modules/configurator.rmrk
@@ -61,6 +61,11 @@ rebol [
 
 		v1.0.3 - 2015-06-24
 			-added resolve-path()  now all disk i/o is mapped and fixed to application path.
+		
+		v1.0.5 - 2019-06-11
+			- added multi-app setup which uses urls to separate application and configs.
+			- when loading the file, we leave any non application-local configs as-is, and write them back.
+			- these are not accessible except by using the /app refinement of get
 	}
 	;-  \ history
 
@@ -156,14 +161,50 @@ slim/register [
 	
 		;- INTERNALS
 		
+		;--------------------------
 		;-    store-path:
+		;
 		; we the default-store-path when left to none just to make it uber easy for those who don't care
-		; (this is useful when evaluation for example)
+		;
+		; SEE ALSO : shared-store-path
+		;--------------------------
 		store-path: none
+		
+		;--------------------------
+		;-    shared-store-path:
+		;
+		; when we use a shared config, load and store it here.
+		;
+		; note that if both a store-path and shared-store-path are defined,
+		; we try the shared one first and ONLY use that if found.
+		;
+		; if not found then we use the local path as usual.
+		;--------------------------
+		shared-store-path: none
+		
 
+		;--------------------------
 		;-    app-label:
 		; use this in output related strings like when storing to disk
+		;--------------------------
 		app-label: none
+		
+		;--------------------------
+		;-    app-name:
+		;
+		; this is used to differentiate applications setup in the loaded file.
+		; any configuration which isn't specifically for this app, is preserved.
+		;
+		; global configurations (those without app name) are usable by all configs.
+		;
+		; be careful, we do not filter out local and global configs... you should keep 
+		; them separate.  if a config exists in both, the local one is used.
+		;
+		; to enable any multi-app config setup, your app MUST have a name, 
+		; otherwise we may raise an exception with app configs
+		;--------------------------
+		app-name: none
+		
 		
 		;-------------------------------
 		;-    -- object-based internals
@@ -237,6 +278,24 @@ slim/register [
 		; tags which cannot *EVER* contain whitespaces.
 		;-----------------
 		space-filled: none
+		
+		
+		;--------------------------
+		;-         external-tags:
+		; 
+		; stores configs for other apps.  these are not normally accessible,
+		; but you can use them with the /app refdddinement of get & set
+		;
+		; this will only, ever, be setup if appname is set and we found 
+		; a shared config file.
+		;
+		; shared config files are different since ALL of their tags are
+		; prefixed by an app-name and a dot.
+		;--------------------------
+		external-tags: none
+		
+		
+		
 		
 		
 		;-                                                                                                       .
@@ -944,7 +1003,7 @@ slim/register [
 		;
 		; returns:  
 		;
-		; notes:    if the on disk 
+		; notes:    
 		;
 		; to do:    
 		;
@@ -963,11 +1022,22 @@ slim/register [
 		]
 		
 		
-		;-----------------
+		;--------------------------
 		;-    from-disk()
-		;-----------------
-		; note: any missing tags in disk prefs are filled-in with current values.
-		;-----------------
+		;--------------------------
+		; purpose:  
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    - Any missing tags in disk prefs are filled-in with current values.
+		;           - if the data contains globals app tags we ignore them and update only ours.
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
 		from-disk: func [
 			/using path [file!]
 			/create "Create tags comming from disk, dangerous, but useful when config is used as controlled storage."
@@ -980,6 +1050,7 @@ slim/register [
 			
 			v?? u-path
 			if using [
+				; remember filename
 				store-path: u-path
 			]
 			
@@ -1017,17 +1088,29 @@ slim/register [
 				vprobe "CONFIGURATOR/from-disk(): no configuration found on disk."
 			]
 			
-			; remember filename
 			vout
 		]
 
 		
 		
 		
-		;-----------------
+		;--------------------------
 		;-    to-disk()
-		;-----------------
-		
+		;--------------------------
+		; purpose:   stores data to disk.  notes that we will store back app tags, if we loaded any.
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    - if we changed some internal tags, only those are updated.
+		;           - if the global tags have none of our data, then we add them to that file.
+		;           - if we declaed an app name, we store it in share config format, even if it contains only our codes.
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
 		to-disk: func [
 			/to path [file!]
 			/relax "allow dangerous types in file"
@@ -1070,6 +1153,34 @@ slim/register [
 			vout
 		]
 		
+		
+		;--------------------------
+		;-    diskify()
+		;--------------------------
+		; purpose:  will create the file if it doesn't exist.  will load it if it does.
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    expects path to be already setup, otherwise use /here refinement
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		diskify: funcl [
+			/here fpath [file!]
+		][
+			vin "diskify()"
+			path: any [fpath current-path]
+			either on-disk?/using path [
+				from-disk/using path
+			][
+				to-disk/using path
+			]
+			vout
+		]
 		
 
 		;-                                                                                                       .
@@ -1284,6 +1395,8 @@ slim/register [
 		spec [block! none!]
 		/cfg configuration
 		/no-snapshot
+		/path filepath [file!] "preset the path of the config so we don't need to deal with this later on."
+		/app appname "Optional: set the application name, when used in share config files."
 	][
 		vin "configure()"
 		cfg: any [
