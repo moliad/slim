@@ -852,6 +852,8 @@ slim/register [
 	][
 		vin "count-line()"
 		i: count/part .last-line-offset  "^/" new-offset
+		v?? i
+		v?? .last-line
 		.last-line: .last-line + i
 		.last-line-offset:  new-offset
 		vprobe i
@@ -1307,13 +1309,13 @@ slim/register [
 			]
 			|
 			[
-				
-			; restore backups !!!!
-			(
-				.last-line: .line-backup:        
-				.last-line-offset: .line-offset-backup
-			)
-	
+					
+				; restore backups !!!!
+				(
+					.last-line: .line-backup        
+					.last-line-offset: .line-offset-backup
+				)
+		
 			
 			]           
 		]
@@ -1459,6 +1461,11 @@ slim/register [
 	][
 		vin "slut/do-tests()"
 		
+		if only [
+			any-of: true
+			labels: olabels
+		]
+		
 		if all [any-of  all-of][
 			vout
 			to-error "cannot use  /any-of  AND  /all-of  at the same time"
@@ -1500,7 +1507,7 @@ slim/register [
 		; setup filtering
 		;--------------------------
 		labels: all [
-			blk: compose [(any [alabels labels olabels])] 
+			blk: compose [(any [alabels labels])] 
 		
 			remove-each label blk [
 				; if no valid label was given, labels will end up being an empty block.
