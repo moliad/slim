@@ -12,7 +12,7 @@ REBOL [
 
 	; -- slim - Library Manager --
 	slim-name: 'slut
-	slim-version: 1.2.1
+	slim-version: 1.4.0
 	slim-prefix: none
 	slim-update: http://www.revault.org/downloads/modules/slut.r
 
@@ -175,8 +175,10 @@ slim/register [
 	;-     inits:
 	;
 	; initialization code storage.
+	;
+	; setup in add-init()
 	;--------------------------
-	inits: []
+	inits: none
 	
 	
 	;--------------------------
@@ -309,6 +311,18 @@ slim/register [
 		; test snippets which must be executed prior to our own test code
 		;--------------------------
 		preambles: none
+		
+		
+		;--------------------------
+		;-         inits:
+		;
+		; which inits do we need to run before running this test
+		; when we run do-tests we will first accumulate all tests to run
+		; and use the list here.
+		;
+		; in the end we will reun each test juste once, even if 
+		;--------------------------
+		inits: []
 		
 		
 		;--------------------------
@@ -470,9 +484,8 @@ slim/register [
 	;
 	;-----------------------------------------------------------------------------------------------------------
 	
-	
 	;--------------------------
-	;-     add-init()
+	;-     to-init-label()
 	;--------------------------
 	; purpose:  
 	;
@@ -482,17 +495,71 @@ slim/register [
 	;
 	; notes:    
 	;
+	; to do:    
+	;
+	; tests:    
+	;--------------------------
+	to-init-label: funcl [
+		name [issue! word! string! none!]
+	][
+		any [
+			all [
+				name
+				; given names will all start with a *
+				to-word rejoin ["*" to-string name]
+			]
+			'default
+		]
+	]
+	
+		
+	;--------------------------
+	;-     add-init()
+	;--------------------------
+	; purpose:  
+	;
+	; inputs:   
+	;
+	; returns:  
+	;
+    ; notes:    - we now structure the init with labels so we can choose to run just part of the inits
+    ;                   
+    ;           - the intent is to share some of the init for functions which share a common init, 
+    ;             without forcing it in cases where the init would conflict with other tests.
+    ;           
+    ;           - this is especially usefull with database related tests which have multiple levels
+    ;             of tests which require re-initialisations, but you don't want to run the 
+    ;             inits for all tests which would surely contradict each other.
+    ;           
+    ;           - the value of the init in these cases is to standardise the default state for many
+    ;             tests so you can rely on the initial state.
+	;
 	; tests:    
 	;--------------------------
 	add-init: funcl [
 		blk [block!]
+		name [none! issue!] "Each init may have one name.  you can refer to it within preambles.  When none is given, it is run for all test runs."
 		/extern inits
 	][
 		vin "add-init()"
 		;v?? blk 
-		inits: [] ; note that this is a static block and will be re-used AFTER do-init clears inits.
-		append/only inits bind-test-block blk
-		new-line/all inits true
+		inits: any [inits copy [default [] ] ] ; reuse or create a new inits block.
+		len: length? inits
+		
+		name: to-init-label name
+
+		
+		
+		; try to find the init label in known list of inits
+		init-blk: select inits name 
+		
+		unless init-blk [
+			; create a new init blk
+			append inits reduce [name   init-blk: copy []]
+		]
+		
+		append init-blk bind-test-block blk
+		new-line (at inits len) true ; start new test block on its own line of blocks.
 		vout
 		inits
 	]
@@ -527,9 +594,7 @@ slim/register [
 		vout
 	]
 	
-	
-	
-	
+		
 	;--------------------------
 	;-     add-test()
 	;--------------------------
@@ -555,6 +620,18 @@ slim/register [
 			;code: test
 			if using [
 				preambles: pre
+			]
+		]
+		if test/preambles [
+			;print "TEST PREAMBLES!!!"
+			;probe test/preambles
+			;ask "!!"
+			test/inits: copy test/preambles
+			remove-each item test/inits [not issue? item]
+			remove-each item test/preambles [not word? item]
+			inits: test/inits 
+			forall inits [
+				change inits to-init-label first inits
 			]
 		]
 		
@@ -814,17 +891,23 @@ slim/register [
 	; tests:    
 	;--------------------------
 	do-inits: funcl [
+		labels [block!] "Gives the list of init labels to run. The default inits are always run"
 		/extern inits
 	][
 		vin "slut/do-inits()"
-		
 		v?? inits
-		
 		if block? inits [
-			foreach block inits [
-				do block
+			foreach lbl labels [
+				blks: select inits lbl
+				
+				either blks [
+					print ["will run tests : " lbl]
+				][
+					to-error rejoin [ "missing test init : " lbl]
+				]
+				do blks
 			]
-			clear inits ; we flush it cause it will be reused by ADD-INIT()
+			clear inits
 		]
 		inits: none
 		vout
@@ -882,8 +965,13 @@ slim/register [
 	.line-offset-backup: none
 	.last-line:       none
 	.last-line-offset: none
+	
 
 
+
+	;----------------------------------------------------
+	;-     BASIC CHARSETS
+	;----------------------------------------------------
 	=whitespace=: charset "^-^/ "
 	=whitespaces=: [some =whitespace=]
 	=whitespaces?=: [opt =whitespaces=]
@@ -896,25 +984,59 @@ slim/register [
 	=digit=:  charset "0123456789"
 	=word-special-char=: charset "-_=!?."
 	
-	=word!=:  [
-		[ =word-special-char= | =letter= ] 
-		any [ =word-special-char= | =letter= | =digit= ]
-	]
-	
-	=lit-word!=: [ #"'" =word!= ]
 	
 	=newline=: charset "^/"
 	=content-char=: complement =newline=
 	=content=: [some =content-char=]
 	=content?=: [opt =content=]
 	
+	=character=: complement union =whitespace= charset "]['()/\{}^";"
+	=characters=: [some =character=]
+	=characters?=: [any =character=]
 	
+	;----------------------------------------------------
+	;-     REBOL TYPES
+	;----------------------------------------------------
+	;--------------------------
+	;-     =word!=:
+	;--------------------------
+	=word!=:  [
+		[ =word-special-char= | =letter= ] 
+		any [ =word-special-char= | =letter= | =digit= ]
+	]
+	
+	;--------------------------
+	;-     =lit-word!=:
+	;--------------------------
+	=lit-word!=: [ #"'" =word!= ]
+
+	;--------------------------
+	;-     =issue!=:
+	;
+	;--------------------------
+	=issue!=: [
+		"#" copy .label =characters= (.label: to-issue .label)
+	]
+	
+	;--------------------------
+	;-     =digit-issue!=:
+	;
+	;--------------------------
+	=digit-issue!=: [
+		"#" copy .label =digits=
+	]
+	
+		
+	;----------------------------------------------------
+	;-     TEST STRUCTURE RULES
+	;----------------------------------------------------
 	;--------------------------
 	;-     =test-prefix=:
 	;
 	; this is set as a string, since some users might want to use some other token.
 	;--------------------------
 	=test-prefix=: "test-"
+	
 	
 	;--------------------------
 	;-     =test-newline=:
@@ -938,6 +1060,11 @@ slim/register [
 		=spaces?= 
 	;   (prin ".5.") 
 	]
+	
+	
+	;--------------------------
+	;-     =test-newlines=:
+	;--------------------------
 	=test-newlines=: [
 		=spaces?=  
 		;(prin "-1-")  
@@ -1038,11 +1165,16 @@ slim/register [
 		#"[" 
 		some [
 			=whitespaces?=  
-			=word!=
+			[
+				  =word!=
+				| copy .val =issue!= ;(print "found issue in block" ?? .val)
+			]
 		]
 		=whitespaces?= 
 		#"]"
 	]
+	
+	
 	
 	
 	;--------------------------
@@ -1053,9 +1185,12 @@ slim/register [
 	;--------------------------
 	=labels=: [
 		copy .labels [
-			=lit-word!= 
+			  =lit-word!= 
+			| =issue!=
 			| =block-of-words=
 		](
+			; "Found LABELS"
+			;print .labels
 			.labels: load .labels
 			.labels: .labels ; convert lit-word! to word!
 			.labels: compose [(.labels)]
@@ -1072,10 +1207,13 @@ slim/register [
 	;--------------------------
 	=opt-labels=: [
 		copy .labels [
-			=lit-word!= 
+			  =lit-word!= 
+			| =issue!=
 			| =block-of-words=
 			| #"[" =whitespaces?= #"]"
 		](
+			;print "Found OPT LABELS"
+			;print .labels
 			.labels: load .labels
 			.labels: .labels ; convert lit-word! to word!
 			.labels: compose [(.labels)]
@@ -1088,6 +1226,10 @@ slim/register [
 	
 	
 	
+	;----------------------------------------------------
+	;-     SLUT TEST DIALECT 
+	;----------------------------------------------------
+
 	;--------------------------
 	;-     =test-do=:
 	;
@@ -1105,8 +1247,6 @@ slim/register [
 	]
 	
 	
-	
-
 	;--------------------------
 	;-     =test-init=:
 	;
@@ -1115,10 +1255,11 @@ slim/register [
 	; you may assign init to different labels, but you can only init once.  so you may init a subset of tests.
 	;--------------------------
 	=test-init=: [
-		";" =whitespaces?=  =test-prefix= "init" =whitespaces= =test-block=
+		
+		";" =whitespaces?=  =test-prefix= "init"  =whitespaces= opt [ (.label: none) =issue!= =whitespaces=] =test-block=
 		(
-			vin ["found test initialization: " .labels ]
-			add-init   .blk
+			vin ["found test initialization: " .label ]
+			add-init .blk .label
 			vout
 		)
 	]
@@ -1147,7 +1288,7 @@ slim/register [
 	;--------------------------
 	=expect-error-spec=: [
 		(.err-num: none .err-id: none)
-		"#" copy .err-num some =digit= (.err-num: to-integer .err-num) ; got an error number
+		=digit-issue!=  (.err-num: to-integer .label) ; got an error number
 		opt [
 			=whitespaces?= 
 			copy .err-id =lit-word!=
@@ -1521,11 +1662,10 @@ slim/register [
 			blk
 		]
 		
-		v?? labels ; remove this line
+		;v?? labels ; remove this line
 		
 		
 		
-		do-inits ; this can be called over and over, it will only do anything if new inits are found
 		
 		
 		summary: make !summary []
@@ -1558,6 +1698,24 @@ slim/register [
 			]
 		]
 		
+		
+		; extract inits to run, based on tests
+		init-list: copy [default]
+		
+		;vprint length? filtered-tests
+		foreach test filtered-tests [
+			;vprint "--------"
+			;v?? test/inits
+			append init-list test/inits
+		]
+		
+		init-list: unique init-list
+		
+		;v?? init-list
+		 
+		do-inits init-list ; this can be called over and over, it will only do anything if new inits are found
+
+		;ask "<<"
 		
 		i: 0
 		foreach test filtered-tests [

@@ -2,7 +2,7 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.3.1
+	version: 1.4.0
 	date: 2018-09-13
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
@@ -153,6 +153,12 @@ REBOL [
 		
 		v1.3.1 - 2018-09-13
 			- added explicit header validation to make sure the slim-name is the same as the actual file name
+			
+		v1.4.0 - 2019-06-23
+			- slim now properly collects all set words DEEP in the library, 
+			  and ignores them within 'FUNCT and 'FUNCL definitions.
+			  this allows slim to properly trap set-words in parse rules and other run-time datasets
+			  without having to add them to the lib's body
 			
 	}
 	;-  \ history
@@ -332,12 +338,21 @@ extract-set-words: func [
 	/only "returns values as set-words, not ordinary words.  Useful for creating object specs."
 	/ignore iblk [block!] "don't extract these words."
 	/deep "find set-words in sub-blocks too"
+	/ignore-funcs "will not accumulate words which are within functions definitions, when given the whole definition in given block."
 	/local words rule word =rule= =deep-rules=
 ][
 	;vin "extract-set-words()"
 	words: make block! 12
 	iblk: any [iblk []]
 	=deep-rule=: [skip]
+	
+	;---
+	; run-time parse rule switch
+	skip-funcs?: either ignore-funcs [
+		none ; try to skip function blocks. (these will be re-assessed anyways, later)
+	][
+		[end skip] ; nothing special about functions.
+	]
 	
 	=rule=: [
 		any [
@@ -346,6 +361,13 @@ extract-set-words: func [
 					append words either only [ word ][to-word word]
 				]
 			)
+			| [
+				skip-funcs?
+				; we try to match funcl & funct definitions and skip them.
+				[
+					  ['FUNCL | 'FUNCL/pure | 'FUNCT] block! block!
+				]
+			]
 			| hash! 
 			| list!
 			| =deep-rule=
@@ -655,7 +677,7 @@ platform-name: does [
 
 
 ;--------------------------
-;- form-error()
+;-     form-error()
 ;--------------------------
 ; purpose:  generate a end-user string from a given error object
 ;
@@ -2105,7 +2127,7 @@ SLiM: context [
 		; if this new feature breaks some code, you may use the /unsafe keyword to prevent it.
 		;--------------
 		unless unsafe [
-			words: extract-set-words/only/ignore lib-spec [header self verbose vlogging? rsrc-path dir-path ]
+			words: extract-set-words/only/ignore/deep/ignore-funcs lib-spec [header self verbose vlogging? rsrc-path dir-path ]
 			
 			foreach item lib-spec [
 				;probe mold :item
@@ -2141,17 +2163,11 @@ SLiM: context [
 					]
 				]
 			]
-			
 			words: unique words
-			
 			
 			insert lib-spec #[none]
 			insert lib-spec words
-			
-			
-			
 		]
-		
 		
 		
 		;--------------
@@ -2166,8 +2182,6 @@ SLiM: context [
 				insert lib-spec reduce [to-set-word word #[none]
 				]
 			]
-			
-			
 			
 			lib-spec: head insert lib-spec compose [
 				header: (hdrblk)
