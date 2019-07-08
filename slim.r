@@ -338,7 +338,7 @@ extract-set-words: func [
 	/only "returns values as set-words, not ordinary words.  Useful for creating object specs."
 	/ignore iblk [block!] "don't extract these words."
 	/deep "find set-words in sub-blocks too"
-	/ignore-funcs "will not accumulate words which are within functions definitions, when given the whole definition in given block."
+	/ignore-funcs-ctx "will not accumulate words which are within functions definitions, when given the whole definition in given block."
 	/local words rule word =rule= =deep-rules=
 ][
 	;vin "extract-set-words()"
@@ -348,7 +348,7 @@ extract-set-words: func [
 	
 	;---
 	; run-time parse rule switch
-	skip-funcs?: either ignore-funcs [
+	skip-funcs?: either ignore-funcs-ctx [
 		none ; try to skip function blocks. (these will be re-assessed anyways, later)
 	][
 		[end skip] ; nothing special about functions.
@@ -364,9 +364,10 @@ extract-set-words: func [
 			| [
 				skip-funcs?
 				; we try to match funcl & funct definitions and skip them.
-				[
-					  ['FUNCL | 'FUNCL/pure | 'FUNCT] block! block!
-				]
+				  ['FUNCL | 'FUNCL/pure | 'FUNCT] block! block!
+				| 'CONTEXT block!
+				| 'MAKE skip block!
+				
 			]
 			| hash! 
 			| list!
@@ -2127,7 +2128,7 @@ SLiM: context [
 		; if this new feature breaks some code, you may use the /unsafe keyword to prevent it.
 		;--------------
 		unless unsafe [
-			words: extract-set-words/only/ignore/deep/ignore-funcs lib-spec [header self verbose vlogging? rsrc-path dir-path ]
+			words: extract-set-words/only/ignore lib-spec [header self verbose vlogging? rsrc-path dir-path ]
 			
 			foreach item lib-spec [
 				;probe mold :item

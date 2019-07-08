@@ -224,7 +224,7 @@ slim/register [
 		;-    protected:
 		; tags which cannot be overidden.
 		;-----------------
-		protected: none
+		protected: 77777
 		
 		;-----------------
 		;-    concealed:
@@ -249,9 +249,8 @@ slim/register [
 		;-----------------
 		;-    protect()
 		;-----------------
-		protect: func [
+		protect: funcl [
 			tags [word! block!]
-			/local tag
 		][
 			vin [{!config/protect()}]
 			
@@ -272,11 +271,19 @@ slim/register [
 		;-----------------
 		;-    protected?()
 		;-----------------
-		protected?: func [
+		protected?: funcl [
 			tag [word!]
 		][
 			vin [{!config/protected?()}]
 			vprobe tag
+			;?? protected
+			
+;			ctx: bind? 'protected
+;			print "======================"
+;			vprobe type? ctx
+;			v?? ctx
+;			print "======================"
+			
 			vout/return
 			vprobe found? find protected tag
 		]
@@ -307,7 +314,7 @@ slim/register [
 		;-----------------
 		;-    concealed?()
 		;-----------------
-		concealed?: func [
+		concealed?: funcl [
 			tag [word!]
 		][
 			vin [{!config/concealed?()}]
@@ -322,7 +329,7 @@ slim/register [
 		;-----------------
 		; force !config to fit tags within specific datatype
 		;-----------------
-		cast: func [
+		cast: funcl [
 			tag [word!]
 			type [word! block!] "note these are pseudo types, starting with the ! (ex !state) not actual datatype! "
 		][
@@ -342,7 +349,7 @@ slim/register [
 		;-----------------
 		; is this tag currently type cast?
 		;-----------------
-		typed?: func [
+		typed?: funcl [
 			tag [word!]
 		][
 			;vin [{!config/typed?()}]
@@ -356,7 +363,7 @@ slim/register [
 		;-----------------
 		; if tag currently typed?, verify it.  Otherwise return none.
 		;-----------------
-		proper-type?: func [
+		proper-type?: funcl [
 			tag [word!]
 			/value val
 		][
@@ -377,7 +384,7 @@ slim/register [
 		;-----------------
 		; prevent this tag from ever containing any whitespaces.
 		;-----------------
-		fill-spaces: func [
+		fill-spaces: funcl [
 			tag [word!]
 		][
 			vin [{!config/fill-spaces()}]
@@ -394,7 +401,7 @@ slim/register [
 		;-----------------
 		;-    space-filled?()
 		;-----------------
-		space-filled?: func [
+		space-filled?: funcl [
 			tag [word!]
 		][
 			vin [{!config/space-filled?()}]
@@ -442,7 +449,7 @@ slim/register [
 		;
 		; ignored if the tag is protected.
 		;-----------------
-		set: func [
+		set: funcl [
 			tag [word!]
 			value
 			/type types [word! block!] "immediately cast the tag to some type"
@@ -450,7 +457,7 @@ slim/register [
 			/overide "ignores protection, only for use within distrobot... code using the !config should not have acces to this."
 			/conceal "immediately call conceal on the tag"
 			/protect "immediately call protect on the tag"
-			/local here
+			/extern tags
 		][
 			vin [{!config/set()}]
 			vprobe tag
@@ -505,7 +512,7 @@ slim/register [
 		;-----------------
 		;-    set?()
 		;-----------------
-		set?: func [
+		set?: funcl [
 			tag [word!]
 		][
 			vin [{!config/set?()}]
@@ -518,9 +525,10 @@ slim/register [
 		;-----------------
 		;-    document()
 		;-----------------
-		document: func [
+		document: funcl [
 			tag [word!]
 			doc [string!]
+			/extern docs
 		][
 			vin [{!config/document()}]
 			vprobe tag
@@ -529,13 +537,14 @@ slim/register [
 			]
 			docs: make docs reduce [to-set-word tag doc]
 			vout
+			docs
 		]
 		
 		
 		;-----------------
 		;-    help()
 		;-----------------
-		help: func [
+		help: funcl [
 			tag [word!]
 		][
 			vin [{!config/help()}]
@@ -550,7 +559,7 @@ slim/register [
 		;-----------------
 		;-    get()
 		;-----------------
-		get: func [
+		get: funcl [
 			tag [word!]
 		][
 			vin [{!config/get()}]
@@ -574,12 +583,11 @@ slim/register [
 		;
 		; <TODO> make function recursive
 		;-----------------
-		apply: func [
+		apply: funcl [
 			data [string! file! word!] ; eventually support other types?
 			/only this [word! block!] "only apply one or a set of specific configs"
 			/reduce "Applies config to some config item"
 			/file "corrects applied data so that file paths are corrected"
-			/local tag lbl tmp
 		][
 			vin [{!config/apply()}]
 
@@ -610,12 +618,12 @@ slim/register [
 					]
 				]
 			]
-			vout
 			if file [
 				tmp: as-file *copy data
 				clear head data
 				append data tmp
 			]
+			vout
 			data
 		]
 		
@@ -625,7 +633,7 @@ slim/register [
 		;-----------------
 		; create or resets a tag out of another
 		;-----------------
-		copy: func [
+		copy: funcl [
 			from [word!]
 			to [word!]
 		][
@@ -642,9 +650,8 @@ slim/register [
 		;
 		; OS or rebol type paths, as well as string or file are valid as current tag data.
 		;-----------------
-		as-file: func [
+		as-file: funcl [
 			tag [word!]
-			/local value
 		][
 			vin [{as-file()}]
 			set tag value: as-file get tag
@@ -660,9 +667,9 @@ slim/register [
 		; <TODO> also remove from other internals: protected, concealed, etc.
 		; <TODO> later features might needed to be better reflected in this function
 		;-----------------
-		delete: func [
+		delete: funcl [
 			tag [word!]
-			/local spec
+			/extern tags
 		][
 			vin [{!config/delete()}]
 			spec: third tags
@@ -680,10 +687,9 @@ slim/register [
 		;-----------------
 		; print a status of the config in console...usefull for debugging
 		;-----------------
-		probe: func [
+		probe: funcl [
 			/unsorted
 			/full "include document strings in probe"
-			/local pt tag v
 		][
 			vin [{!config/probe()}]
 			v: verbose
@@ -779,10 +785,9 @@ slim/register [
 		;
 		; <TODO> make invalid-type recursive in blocks and when /relax is set
 		;-----------------
-		mold: func [
+		mold: funcl [
 			/relax "allow dangerous types in mold"
 			/using mold-method [function!] "special mold method, we give [tag data] pair to hook, and save out returned data or ignore tag if none is returned"
-			/local tag invalid-types val output
 		][
 			vin [{!config/mold()}]
 			output: *copy ""
@@ -968,12 +973,12 @@ slim/register [
 		;-----------------
 		; note: any missing tags in disk prefs are filled-in with current values.
 		;-----------------
-		from-disk: func [
+		from-disk: funcl [
 			/using path [file!]
 			/create "Create tags comming from disk, dangerous, but useful when config is used as controlled storage."
 			/required "Disk file is required, generate an error when it doesn't exist."
 			/ignore-failed "If disk file wasn't readable, just ignore it without raising errors."
-			/local err data
+			/extern store-path
 		][
 			vin [{!config/from-disk()}]
 			u-path: any [ path store-path ]
@@ -1027,12 +1032,10 @@ slim/register [
 		;-----------------
 		;-    to-disk()
 		;-----------------
-		
-		to-disk: func [
+		to-disk: funcl [
 			/to path [file!]
 			/relax "allow dangerous types in file"
 			/only hook [function!] "only save out some of the data, will apply mold-hook, relax MUST also be specified"
-			/local tag
 		][
 			vin [{!config/to-disk()}]
 			either path: any [
@@ -1041,11 +1044,11 @@ slim/register [
 				default-store-path
 			][
 				path: resolve-path path
-				app-label: any [app-label ""]
+				app: any [app-label ""]
 				
 				data: trim rejoin [
 					";---------------------------------" newline
-					"; " app-label " configuration file" newline
+					"; " app " configuration file" newline
 					"; saved: " now/date newline
 					"; version: " system/script/header/version newline
 					";---------------------------------" newline
@@ -1084,18 +1087,18 @@ slim/register [
 		;-----------------
 		;-    init()
 		;-----------------
-		init: func [
+		init: funcl [
 		][
 			vin [{!config/init()}]
-			tags: context []
-			save-point: none
-			defaults: none
-			types: context []
-			docs: context []
-			concealed: *copy []
-			protected: *copy []
-			space-filled: *copy []
-			dynamic: context []
+			self/tags: context []
+			self/save-point: none
+			self/defaults: none
+			self/types: context []
+			self/docs: context []
+			self/concealed: *copy []
+			self/protected: *copy []
+			self/space-filled: *copy []
+			self/dynamic: context []
 			vout
 		]
 
@@ -1105,7 +1108,7 @@ slim/register [
 		;-----------------
 		; take a !config and create a deep copy of it
 		;-----------------
-		clone: func [][
+		clone: funcl [][
 			vin [{!config/clone()}]
 			vout
 			make self [
@@ -1135,10 +1138,10 @@ slim/register [
 		;-----------------
 		; puts a copy of current tags info in store-point.
 		;-----------------
-		backup: func [
+		backup: funcl [
 		][
 			vin [{!config/backup()}]
-			save-point: make tags []
+			self/save-point: make tags []
 			vout
 		]
 		
@@ -1165,7 +1168,6 @@ slim/register [
 			/using ref-tags [object!] "Manually supply a set of tags to use... mutually exclusive to /reset, this one has more strength."
 			/create "new tags should be created from ref-tags."
 			/keep-unrefered "Any tags which are missing in ref-tags, default or save point are not cleared."
-			/local tag tag-list val ref-words
 		][
 			vin [{!config/restore()}]
 			
@@ -1217,7 +1219,7 @@ slim/register [
 		; NB: series are NOT shared between tags... so you must NOT rely on config to be the 
 		;     exact same? serie, but only an identical one (same value, but different reference).
 		;-----------------
-		snapshot-defaults: func [
+		snapshot-defaults: funcl [
 			/overide "allows you to overide defaults if there are any... an unusual procedure"
 		][
 			vin [{snapshot-defaults()}]
@@ -1248,7 +1250,7 @@ slim/register [
 		][
 			vin "!config/reset()"
 			either defaults [
-				tags: make defaults []
+				self/tags: make defaults []
 			][
 				to-error "CONFIGURATOR/reset(): no default to restore!"
 			]
