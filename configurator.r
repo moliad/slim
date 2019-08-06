@@ -751,7 +751,7 @@ slim/register [
 				append ignore concealed
 			]
 			
-			v?? concealed
+			;v?? concealed
 			
 			if any [
 				safe
@@ -759,6 +759,8 @@ slim/register [
 			][
 				append ignore protected
 			]
+			
+			;v?? tags
 			
 			list: words-of tags
 			
@@ -768,7 +770,7 @@ slim/register [
 			
 			result: exclude sort list ignore
 			
-			v?? result
+			;v?? result
 			
 			vout
 			
@@ -861,6 +863,7 @@ slim/register [
 			store-path
 		]
 		
+		
 		;--------------------------
 		;-    resolve-path()
 		;--------------------------
@@ -888,6 +891,8 @@ slim/register [
 			path
 		]
 		
+
+
 				
 		;--------------------------
 		;-    on-disk?()
@@ -1033,7 +1038,7 @@ slim/register [
 		;-    to-disk()
 		;-----------------
 		to-disk: funcl [
-			/to path [file!]
+			/using path [file!]
 			/relax "allow dangerous types in file"
 			/only hook [function!] "only save out some of the data, will apply mold-hook, relax MUST also be specified"
 		][
@@ -1073,6 +1078,36 @@ slim/register [
 			vout
 		]
 		
+
+		;--------------------------
+		;-    diskify()
+		;--------------------------
+		; purpose:  will create the file if it doesn't exist.  will load it if it does.
+		;
+		; inputs:   
+		;
+		; returns:  
+		;
+		; notes:    expects path to be already setup, otherwise use /here refinement
+		;
+		; to do:    
+		;
+		; tests:    
+		;--------------------------
+		diskify: funcl [
+			/here fpath [file!]
+		][
+			vin "diskify()"
+			path: any [fpath current-path]
+			either on-disk?/using path [
+				from-disk/using path
+			][
+				to-disk/using path
+			]
+			vout
+		]
+		
+ 
 		
 
 		;-                                                                                                       .
@@ -1284,14 +1319,23 @@ slim/register [
 	;--------------------------
 	configure: funcl [
 		spec [block! none!]
+		/name appname [word! none!] "will be stored as app-name"
 		/cfg configuration
 		/no-snapshot
+		/extern app-name
 	][
 		vin "configure()"
+		
+		;v?? appname
+		;v?? cfg
+		;v?? configuration
+		
 		cfg: any [
 			configuration 
 			make !config []
 		]
+		
+		
 		
 		cfg/init
 		
@@ -1329,6 +1373,9 @@ slim/register [
 			unless no-snapshot [
 				cfg/snapshot-defaults
 			]
+		]
+		if appname [
+			app-name: appname
 		]
 		
 		vout
