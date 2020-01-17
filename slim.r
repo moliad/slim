@@ -12,7 +12,6 @@ REBOL [
 	; -- Licensing details  --
 	copyright: "Copyright © 2014 Maxim Olivier-Adlhoch"
 	license-type: "Apache License v2.0"
-	license: {Copyright © 2014 Maxim Olivier-Adlhoch}
 	license: {Copyright © 2014 Maxim Olivier-Adlhoch
 
 	Licensed under the Apache License, Version 2.0 (the "License");
@@ -881,6 +880,17 @@ SLiM: context [
 	;--------------------------
 	manager-version: any [ linked-slim-version  system/script/header/version]
 	
+	;--------------------------
+	;-     default-verbose:
+	;
+	; when opening new libraries, we set their verbosity to this value by default.
+	;
+	; this is mainly useful for debugging to trap stray print statements being used,
+	; in inner function calls which have their verbosity at false.
+	;
+	; be careful, this will cause a MASSIVE amount of printing to occur.
+	;--------------------------
+	default-verbose: false
 	
 
 
@@ -1982,6 +1992,16 @@ SLiM: context [
 		
 		v?? [type? lib]
 		self/opening-lib-name: prev-opening-lib
+		
+		if default-verbose [
+			;probe sort words-of lib
+			;probe lib/header/slim-name
+			;print lib/verbose
+			lib/von
+			;print lib/verbose
+			;ask "..."
+		]
+		
 		vout 
 		first reduce [ lib lib: none ]
 	]
