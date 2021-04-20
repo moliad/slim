@@ -1080,13 +1080,13 @@ slim/register [
 		
 
 		;--------------------------
-		;-    diskify()
+		;-    synchronize()
 		;--------------------------
 		; purpose:  will create the file if it doesn't exist.  will load it if it does.
 		;
 		; inputs:   
 		;
-		; returns:  
+		; returns:  true if the confile was created on disk.
 		;
 		; notes:    expects path to be already setup, otherwise use /here refinement
 		;
@@ -1094,17 +1094,23 @@ slim/register [
 		;
 		; tests:    
 		;--------------------------
-		diskify: funcl [
+		diskify:  ; deprecated name
+		synchronize: funcl [
 			/here fpath [file!]
 		][
 			vin "diskify()"
+			new-file?: false
+			
 			path: any [fpath current-path]
 			either on-disk?/using path [
 				from-disk/using path
 			][
 				to-disk/using path
+				new-file?: true
 			]
 			vout
+			
+			new-file?
 		]
 		
  

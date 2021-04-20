@@ -1362,6 +1362,7 @@ slim/register [
 	fix: fix*: funcl [
 		files [file! block!] ; distro-relative
 		fixes [string! block!]
+		/binary
 		/source "get the files in the source directory instead of the distro."
 		/lines {Use line mode which searches string at start of line and replaces text AFTER it. 
 If the replacement is a NONE value, it will erase that whole line.}
@@ -1410,7 +1411,11 @@ If the replacement is a NONE value, it will erase that whole line.}
 			either file? [
 				;----
 				; single file fix
-				data: read abs-path
+				either binary [
+					data: read/binary abs-path
+				][
+					data: read abs-path
+				]
 				;v?? abs-path
 				
 				changed?: false
@@ -1496,7 +1501,11 @@ If the replacement is a NONE value, it will erase that whole line.}
 				
 				;vprobe data
 				either changed? [
-					write abs-path data
+					either binary [
+						write/binary abs-path data
+					][
+						write abs-path data
+					]
 					fixed-count: fixed-count + 1
 					vprint ["Fixed:  " abs-path]
 				][

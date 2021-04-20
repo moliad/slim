@@ -2,7 +2,7 @@ REBOL [
 	; -- Core Header attributes --
 	title: "SLIM | SLIM Library Manager"
 	file: %slim.r
-	version: 1.4.0
+	version: 1.5.0
 	date: 2018-09-13
 	author: "Maxim Olivier-Adlhoch"
 	purpose: {Loads and Manages Run-time & statically linkable libraries.}
@@ -158,6 +158,13 @@ REBOL [
 			  and ignores them within 'FUNCT and 'FUNCL definitions.
 			  this allows slim to properly trap set-words in parse rules and other run-time datasets
 			  without having to add them to the lib's body
+			  
+		v1.5.0 - 2021-03-30
+			-added support for 'SLIM-EXTERN keyword within slim library headers
+			 this is a list of words which will NOT be bound to the local library if they're not in the root of the lib.
+			 thus if you add a set-word directly in the body of the library, it will still be bound.
+			 but when used within a function, block or other data, set-words in the globals list
+			 are not added to the context and bound inside.
 			
 	}
 	;-  \ history
@@ -2092,7 +2099,7 @@ SLiM: context [
 		/header "reserved, private" ; private... do not use.  only to be used by slim linker.
 			hdrblk [string! block!]
 		/unsafe "use this to prevent the collection of all words in order to make them local.  This should be a temporary measure for backwards compatibility, if the new version breaks old libs." 
-		/local lib-spec pre-io post-io block -*&*_&_*&*- success words item item-str expose-block? list lib
+		/local lib-spec pre-io post-io block -*&*_&_*&*- success words item item-str expose-block? list lib extern-words
 	][
 		
 		vprint/in ["SLiM/REGISTER() ["]
@@ -2146,9 +2153,21 @@ SLiM: context [
 		; will be local to the module (even using 'SET).
 		;
 		; if this new feature breaks some code, you may use the /unsafe keyword to prevent it.
+		; 
+		; new in v1.5.0
+		; filter local words by list in header/SLIM-EXTERN
 		;--------------
 		unless unsafe [
-			words: extract-set-words/only/ignore lib-spec [header self verbose vlogging? rsrc-path dir-path ]
+			extern-words: copy [header self verbose vlogging? rsrc-path dir-path]
+			if all [
+				in hdrblk 'slim-extern
+				block? hdrblk/slim-extern
+			][
+				vprint "FOUND SLIM EXTERN WORDS!!"
+				vprobe hdrblk/slim-extern
+				append extern-words hdrblk/slim-extern
+			]
+			words: extract-set-words/only/ignore lib-spec extern-words
 			
 			foreach item lib-spec [
 				;probe mold :item
